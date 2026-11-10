@@ -1,0 +1,110 @@
+<!-- HTML Skeleton File
+    - Implemented blank browser for Testing of Skeleton CSS + JS
+    - Replace for old app
+    -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AODA Agent Skeleton</title>
+    <link rel="stylesheet" href="CSS/AODA.css">
+</head>
+<body>
+    <!-- Simulated IDE Workspace -->
+    <div class="dev-workspace">
+        <div class="solution-explorer">
+            <h3>SOLUTION EXPLORER</h3>
+
+            <details open>
+                <summary>Folder 1</summary>
+                <ul class="file-list">
+                    <li>File 1</li>
+                    <li>File 2</li>
+                </ul>
+            </details>
+
+            <details>
+                <summary>Folder 2</summary>
+                <ul class="file-list">
+                    <li>File 3</li>
+                    <li>File 4</li>
+                </ul>
+            </details>
+        </div>
+
+        <div class="main-editor">
+            <!-- Coding Screen -->
+        </div>
+    </div>
+
+    <!-- Error Tab (Red Dot) -->
+    <button id="aoda-launcher" class="aoda-tab">
+        <span class="notification-dot"></span>
+    </button>
+
+    <!-- AODA Sidebar -->
+    <div id="aoda-sidebar" class="sidebar-container">
+        <div class="sidebar-header">
+            <h2>Sidebar</h2>
+            <button id="sidebarCloseBtn">X</button>
+        </div>
+
+        <div class="sidebar-content">
+            <h3>AODA/WCAG 2.0 AA</h3>
+
+            <details class="aoda-accordion" open>
+                <summary>Category 1</summary>
+                <ul class="error-list">
+                    <li class="error-item">Error Instance</li>
+                </ul>
+            </details>
+
+            <details class="aoda-accordion">
+                <summary>Category 2</summary>
+                <ul class="error-list">
+                    <li class="error-item">Error Instance</li>
+                </ul>
+            </details>
+
+            <details class="aoda-accordion">
+                <summary>Category 3</summary>
+                <ul class="error-list">
+                    <li class="error-item">Error Instance</li>
+                </ul>
+            </details>
+
+            <details class="aoda-accordion">
+                <summary>Category 4</summary>
+                <ul class="error-list">
+                    <li class="error-item">Error Instance</li>
+                </ul>
+            </details>
+        </div>
+    </div>
+
+    <!-- AODA Expanded Detail View -->
+    <div id="aoda-detail-panel" class="detail-container">
+        <div class="detail-header">
+            <h3>Details</h3>
+            <button id="chatCloseBtn">X</button>
+        </div>
+
+        <div class="detail-content">
+            <div class="error-description">Error Content</div>
+            <div class="code-diff-viewer">Code Suggestion: </div>
+        </div>
+
+        <div class="chat-widget">
+            <div class="chat-history"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput">
+                <button id="sendMsgBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="JS/AODA_Agent.js"></script>
+</body>
+</html>
