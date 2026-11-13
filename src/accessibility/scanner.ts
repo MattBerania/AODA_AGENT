@@ -83,13 +83,15 @@ function buttonMayHaveName(button: Element, nodes: Element[]): boolean {
 }
 
 /** Shared conservative naming check for native buttons and hyperlinks. */
-function mayHaveNameFromContent(element: Element): boolean {
+function mayHaveNameFromContent(element: Element, ignoredControl?: Element): boolean {
   if (hasNamingAttribute(element)) return true;
   // An unclosed element or changed/dynamic semantics is outside this subset.
   if (!element.sourceCodeLocation?.endTag || element.attrs.some(({ name }) => name === "role")) return true;
   const pending: Node[] = [element];
   while (pending.length > 0) {
     const node = pending.pop()!;
+    // A wrapped field's value/options are not text supplied by its label.
+    if (node === ignoredControl) continue;
     if ("value" in node && node.value.trim() !== "") return true;
     if (!("tagName" in node)) continue;
     if (["script", "style", "template"].includes(node.tagName)) continue;
@@ -117,8 +119,56 @@ function mayHaveNameFromContent(element: Element): boolean {
   return false;
 }
 
+function isSupportedFormControl(node: Element): boolean {
+  if (node.tagName === "select" || node.tagName === "textarea") return true;
+  if (node.tagName !== "input") return false;
+  const type = node.attrs.find(({ name }) => name === "type")?.value.toLowerCase() ?? "text";
+  // Button inputs have different naming rules and remain outside this subset.
+  return ["", "text", "password", "email", "search", "tel", "url", "number",
+    "checkbox", "radio", "file", "range", "color", "date", "datetime-local",
+    "month", "time", "week"].includes(type);
+}
+
+/** Recognize a name or uncertainty before reporting a supported field. */
+function formControlMayHaveName(control: Element, nodes: Element[], labels: Element[]): boolean {
+  if (hasNamingAttribute(control)) return true;
+  let current: Node | null = control;
+  while (current && "tagName" in current) {
+    if (current.tagName.includes("-") || current.attrs.some(({ name, value }) =>
+      name === "role" || value.includes("@"),
+    )) return true;
+    current = current.parentNode;
+  }
+
+  const id = control.attrs.find(({ name }) => name === "id")?.value;
+  // Duplicate IDs and runtime label targets prevent a definite association.
+  if (id && nodes.filter((node) => node.attrs.some(({ name, value }) =>
+    name === "id" && value === id,
+  )).length > 1) return true;
+
+  for (const label of labels) {
+    const target = label.attrs.find(({ name }) => name === "for")?.value;
+    if (target?.includes("@")) return true;
+    let associated = target !== undefined && id !== undefined && target === id && id !== "";
+    if (target === undefined) {
+      let ancestor = control.parentNode;
+      while (ancestor && "tagName" in ancestor) {
+        if (ancestor === label) {
+          associated = true;
+          break;
+        }
+        ancestor = ancestor.parentNode;
+      }
+    }
+    if (!associated) continue;
+    // Hidden/server-generated label text is conservatively unresolved.
+    if (isExcluded(label, false) || mayHaveNameFromContent(label, control)) return true;
+  }
+  return false;
+}
+
 /**
- * MVP checks for image alternatives, button/link names and document language.
+ * MVP checks for the six approved accessibility rules on supported static markup.
  * Empty results mean no confirmed finding in the supported subset, not compliance.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
@@ -137,11 +187,12 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
   });
   const nodes = elements(document);
   if (malformed || hasUnsupportedRazor(analysisSource, nodes)) return [];
+  const labels = nodes.filter((node) => node.tagName === "label");
 
   const issues: AccessibilityIssue[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
-    if (!["img", "button", "a", "html"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    if (!["img", "button", "a", "html", "iframe", "input", "select", "textarea"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
     const location = node.sourceCodeLocation?.startTag;
     // In particular, an implicit html element has no source-backed opening tag.
     if (!location || isExcluded(node)) continue;
@@ -160,6 +211,19 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
       if (!node.attrs.some(({ name }) => name === "href") || mayHaveNameFromContent(node)) continue;
       ruleId = "link-name";
       message = "Link has no recognized accessible name. ";
+    } else if (node.tagName === "iframe") {
+      // Iframe fallback text and the embedded document do not name the frame.
+      if (hasNamingAttribute(node)) continue;
+      // Changed roles or dynamic visibility require runtime interpretation.
+      if (node.attrs.some(({ name, value }) =>
+        name === "role" || (name === "aria-hidden" && value.includes("@")),
+      )) continue;
+      ruleId = "iframe-name";
+      message = "Iframe has no recognized accessible name. ";
+    } else if (["input", "select", "textarea"].includes(node.tagName)) {
+      if (!isSupportedFormControl(node) || formControlMayHaveName(node, nodes, labels)) continue;
+      ruleId = "form-control-name";
+      message = "Form control has no recognized label or naming attribute. ";
     } else {
       const language = node.attrs.find(({ name }) => name === "lang");
       // Recognize nonblank declarations, including simple dynamic Razor values.

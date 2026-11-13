@@ -1,5 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { scanAccessibility } = require('../dist/accessibility/scanner.js');
 const { getRule } = require('../dist/accessibility/rules.js');
 const { maskRazorDirectives } = require('../dist/accessibility/razor.js');
@@ -231,7 +234,6 @@ test('hidden, server-generated and ambiguous button cases are skipped conservati
     '<button runat="server"></button>', '<button asp-action="Save"></button>',
     '<button><span runat="server"></span></button>',
     '<button><my-icon></my-icon></button>', '<button><svg></svg></button>',
-    '<button><input value="Save"></button>',
     '<button role="switch"></button>', '<button>',
     '<button hidden="@Model.Hidden"></button>',
     '<button><span hidden="@Model.Hidden">Save</span></button>',
@@ -422,4 +424,252 @@ test('language and element findings combine in source order without duplicates',
     ['document-language', 'link-name', 'button-name', 'image-text-alternative']);
   assert.equal(new Set(findings.map((issue) => issue.id)).size, 4);
   assert.deepEqual(scan(source), findings);
+});
+
+test('unnamed iframe returns complete catalog metadata and its opening-tag range', () => {
+  const source = '<iframe src="/map"></iframe>';
+  const end = source.indexOf('>') + 1;
+  const rule = getRule('iframe-name');
+  assert.deepEqual(scan(source), [{
+    id: JSON.stringify([uri, rule.id, 0, end]), ruleId: rule.id, title: rule.title,
+    message: 'Iframe has no recognized accessible name. ' + rule.remediation,
+    fileUri: uri,
+    range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: end },
+    category: rule.category, severity: rule.severity, wcagCriteria: rule.wcagCriteria,
+  }]);
+});
+
+for (const source of [
+  '<iframe src="/map" title="Office location map"></iframe>',
+  '<iframe aria-label="Training video"></iframe>',
+  '<iframe aria-labelledby="runtime-frame-label"></iframe>',
+  '<iframe title="" aria-label="Help"></iframe>',
+  '<IFRAME TITLE="Help"></IFRAME>',
+  '<iframe title="@Model.FrameTitle"></iframe>',
+  '<iframe aria-label="@Model.FrameLabel"></iframe>',
+  '<iframe aria-labelledby="@Model.FrameLabelId"></iframe>',
+]) {
+  test(`recognizes iframe naming: ${source}`, () => assert.deepEqual(scan(source), []));
+}
+
+for (const source of [
+  '<iframe></iframe>', '<iframe title></iframe>', '<iframe title=""></iframe>',
+  '<iframe title=" \t " aria-label="" aria-labelledby=" "></iframe>',
+  '<iframe src="/help">Help content</iframe>',
+  '<iframe name="help-frame" id="help"></iframe>',
+  '<iframe src="@Model.FrameUrl"></iframe>',
+  '<iframe srcdoc="<title>Help</title><img>"></iframe>',
+]) {
+  test(`reports unnamed iframe: ${source}`, () => {
+    assert.deepEqual(scan(source).map((issue) => issue.ruleId), ['iframe-name']);
+  });
+}
+
+test('hidden, server-generated and unsupported iframe cases are skipped safely', () => {
+  for (const source of [
+    '<iframe hidden></iframe>', '<iframe aria-hidden="true"></iframe>',
+    '<div hidden><iframe></iframe></div>',
+    '<div aria-hidden="true"><iframe></iframe></div>',
+    '<iframe runat="server"></iframe>', '<iframe asp-frame="map"></iframe>',
+    '<section runat="server"><iframe></iframe></section>',
+    '<iframe role="none"></iframe>', '<iframe role="region"></iframe>',
+    '<iframe aria-hidden="@Model.Hidden"></iframe>',
+    '<iframe title="@GetTitle()"></iframe>', '<iframe src="@Url.Content("~/map")"></iframe>',
+    '<iframe title="', '<iframe title="Map" title="Help"></iframe>', '<iframe>',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('comments, scripts and templates do not generate iframe findings', () => {
+  assert.deepEqual(scan('<!-- <iframe></iframe> --><script>const frame = "<iframe></iframe>";</script>' +
+    '<template><iframe></iframe></template>'), []);
+});
+
+test('iframe ranges and IDs retain original positions after directive masking', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const lines = ['@model Product', '  <iframe', ' src="/map">Fallback</iframe>'];
+    const source = lines.join(newline);
+    const [issue] = scan(source);
+    assert.equal(scan(source).length, 1);
+    assert.deepEqual(issue.range, { startLine: 1, startCharacter: 2, endLine: 2, endCharacter: 12 });
+    const start = source.indexOf('<iframe');
+    assert.deepEqual(JSON.parse(issue.id), [uri, 'iframe-name', start, source.indexOf('>', start) + 1]);
+  }
+});
+
+test('iframe findings combine with other rules in deterministic source order', () => {
+  const source = '<!doctype html><html><body><iframe></iframe><button></button>' +
+    '<a href="#"></a><img><iframe title="Map"></iframe><iframe></iframe></body></html>';
+  const findings = scan(source);
+  assert.deepEqual(findings.map((issue) => issue.ruleId), [
+    'document-language', 'iframe-name', 'button-name', 'link-name',
+    'image-text-alternative', 'iframe-name',
+  ]);
+  assert.equal(new Set(findings.map((issue) => issue.id)).size, findings.length);
+  assert.deepEqual(scan(source), findings);
+  assert.notEqual(scanAccessibility(source, 'file:///other.html')[1].id, findings[1].id);
+});
+
+test('unnamed field returns complete catalog metadata and opening-tag range', () => {
+  const source = '<input id="name">';
+  const rule = getRule('form-control-name');
+  assert.deepEqual(scan(source), [{
+    id: JSON.stringify([uri, rule.id, 0, source.length]), ruleId: rule.id, title: rule.title,
+    message: 'Form control has no recognized label or naming attribute. ' + rule.remediation,
+    fileUri: uri,
+    range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: source.length },
+    category: rule.category, severity: rule.severity, wcagCriteria: rule.wcagCriteria,
+  }]);
+});
+
+for (const source of [
+  '<label for="name">Name</label><input id="name">',
+  '<input id="name"><label for="name"><span>Name</span></label>',
+  '<label>Name<input></label>', '<label><span>Name</span><textarea></textarea></label>',
+  '<label>Province<select><option>Ontario</option></select></label>',
+  '<label for="terms">Accept terms</label><input id="terms" type="checkbox">',
+  '<INPUT ID="name"><LABEL FOR="name">Name</LABEL>',
+  '<input aria-label="Name">', '<select aria-labelledby="runtime-label"></select>',
+  '<textarea title="Notes"></textarea>',
+  '<label for="name"></label><input id="name" aria-label="Name">',
+  '<label for="name"></label><label for="name">Name</label><input id="name">',
+  '<label for="name"><img alt="Name"></label><input id="name">',
+]) {
+  test(`recognizes form naming: ${source}`, () => assert.deepEqual(scan(source), []));
+}
+
+for (const source of [
+  '<input>', '<input type="text">', '<input type="checkbox">', '<input type="radio">',
+  '<input type="email">', '<input type="file">', '<input type="date">', '<input type="range">',
+  '<select><option>Ontario</option></select>', '<textarea>Existing value</textarea>',
+  '<input name="Name" value="Name">', '<input placeholder="Name">',
+  '<input aria-label=" " aria-labelledby="" title="">',
+  '<label for="other">Name</label><input id="name">',
+  '<label for="Name">Name</label><input id="name">',
+  '<label for="other">Name<input id="name"></label>',
+  '<label for="name"></label><input id="name">', '<label><input></label>',
+  '<label><textarea>Existing value</textarea></label>',
+  '<label><select><option>Ontario</option></select></label>',
+  '<label><span hidden>Name</span><input></label>',
+  '<label for="name"><span aria-hidden="true">Name</span></label><input id="name">',
+  '<label><!-- Name --><input></label>', '<input disabled>', '<input readonly>',
+]) {
+  test(`reports field lacking a recognized label: ${source}`, () => {
+    assert.deepEqual(scan(source).map((issue) => issue.ruleId), ['form-control-name']);
+  });
+}
+
+test('hidden, button, unknown and dynamic input types are outside the field detector', () => {
+  for (const type of ['hidden', 'HIDDEN', 'submit', 'reset', 'button', 'image', 'unknown', '@Model.Type']) {
+    assert.deepEqual(scan(`<input type="${type}">`), [], type);
+  }
+});
+
+test('dynamic and ambiguous form associations are skipped conservatively', () => {
+  for (const source of [
+    '<input id="@Model.FieldId">', '<input aria-label="@Model.FieldName">',
+    '<input id="name"><label for="@Model.FieldId">Name</label>',
+    '<label for="@Model.FieldId">Name</label><input id="@Model.FieldId">',
+    '<label>Name<input asp-for="Name"></label>', '<input asp-for="Name">',
+    '<input runat="server">', '<section runat="server"><input></section>',
+    '<input hidden>', '<section aria-hidden="true"><select></select></section>',
+    '<section aria-hidden="@Model.Hidden"><input></section>',
+    '<input role="combobox">', '<my-field><input></my-field>',
+    '<label for="name" hidden>Name</label><input id="name">',
+    '<input id="name"><input id="name">',
+    '<label>Names<input><input></label>',
+    '@Html.TextBoxFor(m => m.Name)', '<input aria-label="@GetName()">',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('an embedded field can receive its own finding while button naming remains uncertain', () => {
+  assert.deepEqual(scan('<button><input value="Save"></button>').map((issue) => issue.ruleId),
+    ['form-control-name']);
+});
+
+test('form control ranges and IDs retain original positions after directive masking', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const source = `@model Product${newline}  <input${newline} id="name">`;
+    const [issue] = scan(source);
+    assert.deepEqual(issue.range, { startLine: 1, startCharacter: 2, endLine: 2, endCharacter: 11 });
+    assert.deepEqual(JSON.parse(issue.id), [uri, 'form-control-name', source.indexOf('<input'), source.length]);
+  }
+});
+
+test('all six detectors share stable IDs and source ordering', () => {
+  const source = '<!doctype html><html><body><input><button></button><a href="#"></a>' +
+    '<img><iframe></iframe><select></select><textarea></textarea></body></html>';
+  const findings = scan(source);
+  assert.deepEqual(findings.map((issue) => issue.ruleId), [
+    'document-language', 'form-control-name', 'button-name', 'link-name',
+    'image-text-alternative', 'iframe-name', 'form-control-name', 'form-control-name',
+  ]);
+  assert.equal(new Set(findings.map((issue) => issue.id)).size, findings.length);
+  assert.deepEqual(scan(source), findings);
+});
+
+test('full HTML fixture reports exactly one occurrence of each approved rule with exact source text', () => {
+  const fixture = join(__dirname, 'fixtures', 'missing-names.html');
+  const source = readFileSync(fixture, 'utf8');
+  const fileUri = pathToFileURL(fixture).href;
+  const findings = scanAccessibility(source, fileUri);
+  const expected = [
+    ['document-language', '<html>'],
+    ['image-text-alternative', '<img src="logo.png">'],
+    ['form-control-name', '<input id="request-name" type="text">'],
+    ['button-name', '<button type="submit">'],
+    ['link-name', '<a href="/help">'],
+    ['iframe-name', '<iframe src="/map">'],
+  ];
+  assert.deepEqual(findings.map((issue) => issue.ruleId), expected.map(([ruleId]) => ruleId));
+
+  // Convert reported line/character positions back into offsets independently.
+  const lineStarts = [0];
+  for (const match of source.matchAll(/\r\n|\r|\n/g)) {
+    lineStarts.push(match.index + match[0].length);
+  }
+  for (let index = 0; index < findings.length; index++) {
+    const issue = findings[index];
+    const start = lineStarts[issue.range.startLine] + issue.range.startCharacter;
+    const end = lineStarts[issue.range.endLine] + issue.range.endCharacter;
+    assert.equal(source.slice(start, end), expected[index][1]);
+    assert.equal(issue.fileUri, fileUri);
+    assert.deepEqual(JSON.parse(issue.id), [fileUri, issue.ruleId, start, end]);
+  }
+});
+
+test('complete HTML fixture with recognized naming mechanisms has no findings', () => {
+  const fixture = join(__dirname, 'fixtures', 'recognized-names.html');
+  assert.deepEqual(scanAccessibility(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href), []);
+});
+
+test('Razor fixture combines directives, dynamic attributes and static findings', () => {
+  const fixture = join(__dirname, 'fixtures', 'product-view.cshtml');
+  const source = readFileSync(fixture, 'utf8');
+  const findings = scanAccessibility(source, pathToFileURL(fixture).href);
+  assert.deepEqual(findings.map((issue) => issue.ruleId), ['form-control-name', 'link-name']);
+  for (const issue of findings) {
+    const [, , start, end] = JSON.parse(issue.id);
+    const tag = issue.ruleId === 'form-control-name'
+      ? '<textarea id="notes">'
+      : '<a href="@Model.HelpUrl">';
+    assert.equal(start, source.indexOf(tag));
+    assert.equal(source.slice(start, end), tag);
+  }
+});
+
+test('scanning changed source clears resolved findings without retaining previous state', () => {
+  const fixture = join(__dirname, 'fixtures', 'missing-names.html');
+  const source = readFileSync(fixture, 'utf8');
+  const fileUri = pathToFileURL(fixture).href;
+  const before = scanAccessibility(source, fileUri);
+  const updated = source
+    .replace('<html>', '<html lang="en">')
+    .replace('<img src="logo.png">', '<img src="logo.png" alt="Service logo">')
+    .replace('<input id="request-name"', '<input aria-label="Name" id="request-name"')
+    .replace('<button type="submit">', '<button aria-label="Send" type="submit">')
+    .replace('<a href="/help">', '<a aria-label="Help" href="/help">')
+    .replace('<iframe src="/map">', '<iframe title="Office map" src="/map">');
+  assert.equal(before.length, 6);
+  assert.deepEqual(scanAccessibility(updated, fileUri), []);
+  assert.deepEqual(scanAccessibility(source, fileUri), before);
 });

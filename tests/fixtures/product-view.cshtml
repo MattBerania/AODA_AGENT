@@ -1,0 +1,15 @@
+@model ProductViewModel
+@using MyApp.Models
+
+<section>
+  <h1>Product details</h1>
+  <img src="@Model.ImageUrl" alt="@Model.ImageDescription">
+  <form>
+    <label for="name">Name</label>
+    <input id="name" value="@Model.Name">
+    <textarea id="notes"></textarea>
+    <button type="submit"><span>Save</span></button>
+  </form>
+  <a href="@Model.HelpUrl"></a>
+  <iframe src="@Model.MapUrl" title="@Model.MapTitle"></iframe>
+</section>

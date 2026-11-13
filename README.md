@@ -1,9 +1,9 @@
 # OPS AODA Agent
 
 Independent TypeScript source scanner for an accessibility-assistant VS Code
-extension. The scanner implements **`image-text-alternative`, `button-name`,
-`link-name`, and `document-language`**.
-The existing six-rule catalog is retained for subsequent detectors.
+extension. The scanner implements the six approved rules **`image-text-alternative`,
+`button-name`, `link-name`, `document-language`, `iframe-name`, and
+`form-control-name`** within the source-analysis limits below.
 
 ## Run and verify
 
@@ -15,6 +15,11 @@ npm test
 
 `npm test` compiles TypeScript into the ignored `dist/` directory, then runs
 focused tests using Node's built-in test runner. No test framework is installed.
+
+`tests/fixtures/` contains synthetic full-page HTML examples and a Razor view.
+The fixture tests exercise all six rules together, check that reported ranges
+select the expected original tags, and verify repeated calls with changed source
+clear resolved findings. Production legacy ASP.NET files still need validation.
 
 After building, try it from the repository root:
 
@@ -116,6 +121,47 @@ finding: its shared layout may declare the language. Existing malformed-input,
 unsupported-Razor and server-processing skips still apply. Findings cover the
 original opening tag and reuse catalog metadata for WCAG 3.1.1.
 
+### Iframe names
+
+The `iframe-name` detector checks native `<iframe>` elements for a non-empty
+`title`, `aria-label`, or `aria-labelledby`. Blank values receive a finding when
+no other recognized naming attribute is present. Referenced labels and naming
+quality are not validated. Supported simple Razor naming values are treated as
+unresolved, while a dynamic `src` alone still leaves the frame unnamed.
+
+Fallback text between iframe tags, `name`/`id`, and a title inside `srcdoc` do not
+supply the iframe's accessible name. Embedded document content is not scanned.
+Explicitly hidden elements, server processing, changed roles and dynamic
+`aria-hidden` on the iframe are skipped conservatively. Existing whole-file HTML
+parse-error and unsupported-Razor skips apply. Findings cover the opening tag
+and use the existing WCAG 4.1.2 catalog metadata.
+
+### Form control names
+
+The `form-control-name` detector checks ordinary input fields, selects and
+textareas. It recognizes nonblank ARIA naming/title attributes, exact `for`/`id`
+label associations, and wrapping labels. Explicit labels may precede or follow
+the field. Label content uses the existing content-naming helper with the field
+itself excluded, so input values, textarea contents and selected option text do
+not supply label text. Multiple associated labels are checked until one provides
+text or uncertainty. Empty labels alone still produce findings.
+
+Supported input types are text (including omitted/empty type), password, email,
+search, tel, url, number, checkbox, radio, file, range, color, date, datetime-local,
+month, time and week. Hidden, button, submit, reset, image, unknown and dynamic
+input types are skipped. Disabled and readonly fields remain in scope.
+
+Dynamic IDs, label targets, roles, custom-element ancestors and other runtime
+attributes are handled conservatively. Duplicate field IDs and hidden or
+server-processed associated labels are unresolved. Complex label content retains
+the content helper's uncertainty skips. CSS visibility is not evaluated.
+
+Following the project's requested labeling policy, placeholder-only fields
+receive a finding for lacking a recognized label. Browsers can use placeholder
+text as a fallback accessible name, so this policy does not claim their computed
+browser name is empty. The detector checks source naming mechanisms without
+implementing the full browser accessible-name algorithm.
+
 Ranges cover the complete opening tag in the **original source**, using zero-based
 lines and UTF-16 characters with an exclusive end. parse5's one-based line/column
 positions are converted by subtracting one. LF, CRLF, CR and emoji are tested.
@@ -178,11 +224,10 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. No VS Code UI, file scanning, Copilot integration, or fixes
-are implemented. Form and iframe detectors remain to be built.
+are implemented. All six approved detectors have focused tests for their
+documented subsets.
 
 ## Next increments
 
-Expand safe Razor coverage as needed, then add the remaining approved detectors one at a
-time: form controls and iframes. Reuse the
-parser and metadata catalog; add focused tests with each detector. Active-editor
-integration remains a separate task.
+Validate production legacy application files and expand safe Razor coverage as
+needed. Active-editor integration remains a separate task.
