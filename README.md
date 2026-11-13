@@ -1,7 +1,7 @@
 # OPS AODA Agent
 
 Independent TypeScript source scanner for an accessibility-assistant VS Code
-extension. This first increment implements **only `image-text-alternative`**.
+extension. The scanner implements **`image-text-alternative` and `button-name`**.
 The existing six-rule catalog is retained for subsequent detectors.
 
 ## Run and verify
@@ -34,13 +34,13 @@ no file I/O and has no VS Code dependency. The caller is responsible for selecti
 supported `.html` and `.cshtml` files. Scan again with updated source when needed;
 there is no cached state.
 
-## How the first detector works
+## How the detectors work
 
 1. Supported leading directives in `.cshtml` files are masked with spaces.
 2. `parse5` parses the analysis copy with source locations enabled.
 3. Safety gates exclude malformed HTML and unsupported Razor syntax.
-4. Native HTML `<img>` elements are inspected once per source position.
-5. Findings copy metadata from `getRule("image-text-alternative")`.
+4. Native HTML `<img>` and `<button>` elements are inspected once per rule and source position.
+5. Findings copy metadata from the existing rule catalog via `getRule`.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
 `aria-labelledby`, and `title` are also recognized. Referenced IDs and alternative
@@ -52,6 +52,31 @@ Explicitly hidden elements/ancestors (`hidden`, `aria-hidden="true"`), image rol
 ancestors (`runat`, `asp-*`) are skipped conservatively. This does not verify the
 validity of those declarations. Comments, scripts and styles are not scanned as
 HTML image markup. Stylesheet visibility and generated markup are not analyzed.
+
+### Button names
+
+The `button-name` detector checks native `<button>` elements. It recognizes
+non-empty `aria-label`, `aria-labelledby`, or `title`, nested text, and non-empty
+child-image alternatives. It does not resolve ARIA references or implement the
+full browser accessible-name computation. Empty/whitespace-only text and `alt=""`
+on a child image do not supply a button name. A button with `aria-label="Close"`
+can contain a decorative image with `alt=""` without either rule reporting it.
+
+Comments, script/style/template contents and explicitly hidden descendants do
+not contribute naming text. Presentation roles on text containers do not hide
+their text. CSS visibility, pseudo-element content, JavaScript mutations and
+rendered browser behavior are not evaluated, so findings describe the supported
+static markup subset.
+
+Conservative skips include unclosed buttons, changed roles, dynamic attributes,
+SVG/custom-element content, embedded controls, and server-processed descendants.
+Associated HTML labels (`for`/`id` or wrapping labels) are recognized as possible
+names, but their content is not validated yet. A child image without `alt` is
+left to the image rule: browser filename fallback makes the button name uncertain.
+Inline Razor button text such as `@Model.ButtonText` continues to trigger the
+existing whole-file skip; this detector does not expand Razor expression support.
+
+Input buttons and non-native `role="button"` elements are outside this increment.
 
 Ranges cover the complete opening tag in the **original source**, using zero-based
 lines and UTF-16 characters with an exclusive end. parse5's one-based line/column
@@ -114,12 +139,12 @@ from source without findings. Consumers must preserve that limitation in their
 wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
-or AODA compliance. No VS Code UI, file scanning, Copilot integration, fixes, or
-other rule detectors are implemented in this increment.
+or AODA compliance. No VS Code UI, file scanning, Copilot integration, or fixes
+are implemented. Form, link, language and iframe detectors remain to be built.
 
 ## Next increments
 
 Expand safe Razor coverage as needed, then add the remaining approved detectors one at a
-time: form controls, buttons, links, document language, and iframes. Reuse the
+time: form controls, links, document language, and iframes. Reuse the
 parser and metadata catalog; add focused tests with each detector. Active-editor
 integration remains a separate task.

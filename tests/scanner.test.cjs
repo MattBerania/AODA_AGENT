@@ -106,9 +106,9 @@ test('malformed input is safe and does not report speculative findings', () => {
   assert.equal(scan('<div><img>').length, 1);
 });
 
-test('empty source and pages without images have no findings', () => {
+test('empty source and pages without supported controls have no findings', () => {
   assert.deepEqual(scan(''), []);
-  assert.deepEqual(scan('<button></button><html lang="en">'), []);
+  assert.deepEqual(scan('<p>Content</p>'), []);
 });
 
 for (const directive of [
@@ -181,4 +181,91 @@ test('header masking applies only to Razor file URIs', () => {
   const source = '@model Product\n<img>';
   assert.deepEqual(scanAccessibility(source, 'file:///demo/page.html'), []);
   assert.equal(scanAccessibility(source, 'file:///demo/PAGE.CSHTML?version=1').length, 1);
+});
+
+test('empty button produces complete catalog metadata and its opening-tag range', () => {
+  const source = '<button></button>';
+  const rule = getRule('button-name');
+  assert.deepEqual(scan(source), [{
+    id: JSON.stringify([uri, rule.id, 0, 8]),
+    ruleId: rule.id, title: rule.title,
+    message: 'Button has no recognized accessible name. ' + rule.remediation,
+    fileUri: uri,
+    range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 8 },
+    category: rule.category, severity: rule.severity, wcagCriteria: rule.wcagCriteria,
+  }]);
+});
+
+for (const source of [
+  '<button>Save</button>', '<button><span><strong>Save</strong></span></button>',
+  '<button aria-label="Close"></button>', '<button aria-labelledby="runtime-label"></button>',
+  '<button title="Close"></button>', '<button><img alt="Search"></button>',
+  '<button><span aria-label="Search"></span></button>',
+  '<button><img aria-label="Search" alt=""></button>',
+  '<button aria-label="Close"><img alt=""></button>',
+  '<button aria-label=" ">Save</button>', '<BUTTON>Save</BUTTON>',
+  '<button><span role="presentation">Save</span></button>',
+  '<button><span role="none">Save</span></button>',
+]) {
+  test(`recognizes a button naming mechanism: ${source}`, () => assert.deepEqual(scan(source), []));
+}
+
+for (const source of [
+  '<button> \n\t </button>', '<button>&nbsp;</button>',
+  '<button aria-label=" " aria-labelledby="" title=""></button>',
+  '<button><img alt=""></button>', '<button><img alt="  "></button>',
+  '<button><span hidden>Save</span></button>',
+  '<button><span aria-hidden="true">Save</span></button>',
+  '<button><!-- Save --></button>',
+  '<button><script>Save</script><style>/* Save */</style></button>',
+  '<button><template>Save</template></button>',
+]) {
+  test(`reports an unnamed button: ${source}`, () => {
+    assert.deepEqual(scan(source).map((issue) => issue.ruleId), ['button-name']);
+  });
+}
+
+test('hidden, server-generated and ambiguous button cases are skipped conservatively', () => {
+  for (const source of [
+    '<button hidden></button>', '<div aria-hidden="true"><button></button></div>',
+    '<button runat="server"></button>', '<button asp-action="Save"></button>',
+    '<button><span runat="server"></span></button>',
+    '<button><my-icon></my-icon></button>', '<button><svg></svg></button>',
+    '<button><input value="Save"></button>',
+    '<button role="switch"></button>', '<button>',
+    '<button hidden="@Model.Hidden"></button>',
+    '<button><span hidden="@Model.Hidden">Save</span></button>',
+    '<button aria-label="@Model.Name"></button>', '<button>@Model.ButtonText</button>',
+    '<label for="save">Save</label><button id="save"></button>',
+    '<label>Save<button></button></label>',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('image and button rules remain distinct for image-only buttons', () => {
+  assert.deepEqual(scan('<button><img src="search.png"></button>').map((issue) => issue.ruleId),
+    ['image-text-alternative']);
+  assert.deepEqual(scan('<button aria-label="Search"><img></button>').map((issue) => issue.ruleId),
+    ['image-text-alternative']);
+});
+
+test('mixed findings are source ordered with deterministic distinct IDs', () => {
+  const source = '@model Product\r\n<button></button><img><button><img alt=""></button>';
+  const issues = scan(source);
+  assert.deepEqual(issues.map((issue) => issue.ruleId),
+    ['button-name', 'image-text-alternative', 'button-name']);
+  assert.equal(new Set(issues.map((issue) => issue.id)).size, 3);
+  assert.deepEqual(scan(source), issues);
+  assert.deepEqual(issues[0].range, { startLine: 1, startCharacter: 0, endLine: 1, endCharacter: 8 });
+});
+
+test('multiline button opening tags retain original ranges after Razor masking', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const source = `@model Product${newline}  <button${newline} type="button"></button>`;
+    assert.deepEqual(scan(source)[0].range,
+      { startLine: 1, startCharacter: 2, endLine: 2, endCharacter: 15 });
+  }
+});
+
+test('input buttons and non-native ARIA buttons remain outside this detector', () => {
+  assert.deepEqual(scan('<input type="submit" value=""><div role="button"></div>'), []);
 });

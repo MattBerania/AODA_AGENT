@@ -46,7 +46,7 @@ function hasUnsupportedRazor(source: string, nodes: Element[]): boolean {
   return source.slice(end).includes("@");
 }
 
-function isExcluded(node: Element): boolean {
+function isExcluded(node: Element, includePresentationRole = true): boolean {
   let current: Node | null = node;
   while (current && "tagName" in current) {
     if (current.attrs.some(({ name, value }) =>
@@ -56,13 +56,62 @@ function isExcluded(node: Element): boolean {
     )) return true;
     current = current.parentNode;
   }
-  return node.attrs.some(({ name, value }) =>
+  return includePresentationRole && node.attrs.some(({ name, value }) =>
     name === "role" && /^(none|presentation)$/i.test(value.trim()),
   );
 }
 
+function hasNamingAttribute(node: Element): boolean {
+  return node.attrs.some(({ name, value }) =>
+    ["aria-label", "aria-labelledby", "title"].includes(name) && value.trim() !== "",
+  );
+}
+
+/** True means recognized naming OR uncertainty: neither warrants an error. */
+function buttonMayHaveName(button: Element, nodes: Element[]): boolean {
+  if (hasNamingAttribute(button)) return true;
+  // HTML buttons are labelable. Defer label-content validation for this increment.
+  const id = button.attrs.find(({ name }) => name === "id")?.value;
+  if (id && nodes.some((node) => node.tagName === "label" &&
+    node.attrs.some(({ name, value }) => name === "for" && value === id))) return true;
+  let parent = button.parentNode;
+  while (parent && "tagName" in parent) {
+    if (parent.tagName === "label") return true;
+    parent = parent.parentNode;
+  }
+
+  // An unclosed button or changed/dynamic semantics is outside this subset.
+  if (!button.sourceCodeLocation?.endTag || button.attrs.some(({ name }) => name === "role")) return true;
+  const pending: Node[] = [button];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if ("value" in node && node.value.trim() !== "") return true;
+    if (!("tagName" in node)) continue;
+    if (["script", "style", "template"].includes(node.tagName)) continue;
+    // Tag Helpers/server controls and dynamic attributes may generate names or
+    // alter visibility. They are uncertain, not confirmed empty content.
+    if (node.attrs.some(({ name, value }) =>
+      name === "runat" || name.startsWith("asp-") || value.includes("@"),
+    )) return true;
+    // Presentation roles remove semantics, not the text of a nested span.
+    if (isExcluded(node, false)) continue;
+    if (node.namespaceURI !== "http://www.w3.org/1999/xhtml" || node.tagName.includes("-")) return true;
+    if (["input", "select", "textarea", "object", "iframe", "canvas", "audio", "video"].includes(node.tagName)) return true;
+    if (node.tagName === "img" && isExcluded(node)) continue;
+    if (node !== button && hasNamingAttribute(node)) return true;
+    if (node.tagName === "img") {
+      const alt = node.attrs.find(({ name }) => name === "alt");
+      // Missing alt has possible filename fallback; the image rule handles it.
+      if (!alt || alt.value.trim() !== "") return true;
+      continue;
+    }
+    for (const child of node.childNodes) pending.push(child);
+  }
+  return false;
+}
+
 /**
- * First MVP detector: native HTML images missing a recognized text alternative.
+ * MVP detectors: native HTML images and buttons missing recognized alternatives.
  * Empty results mean no confirmed finding in the supported subset, not compliance.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
@@ -82,27 +131,34 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
   const nodes = elements(document);
   if (malformed || hasUnsupportedRazor(analysisSource, nodes)) return [];
 
-  const rule = getRule("image-text-alternative");
-  if (!rule) throw new Error("Missing image-text-alternative rule metadata");
   const issues: AccessibilityIssue[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   for (const node of nodes) {
-    if (node.tagName !== "img" || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    if (!["img", "button"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
     const location = node.sourceCodeLocation?.startTag;
-    if (!location || seen.has(location.startOffset) || isExcluded(node)) continue;
-    // Attribute presence suffices for alt: alt="" can mean decorative.
-    // ARIA references and dynamic values are acknowledged, not runtime-validated.
-    const named = node.attrs.some(({ name, value }) =>
-      name === "alt" ||
-      (["aria-label", "aria-labelledby", "title"].includes(name) && value.trim() !== ""),
-    );
-    if (named) continue;
-    seen.add(location.startOffset);
+    if (!location || isExcluded(node)) continue;
+    let ruleId: string;
+    let message: string;
+    if (node.tagName === "img") {
+      // Presence suffices for alt: alt="" can mean decorative.
+      if (node.attrs.some(({ name }) => name === "alt") || hasNamingAttribute(node)) continue;
+      ruleId = "image-text-alternative";
+      message = "Image has no recognized text alternative. ";
+    } else {
+      if (buttonMayHaveName(node, nodes)) continue;
+      ruleId = "button-name";
+      message = "Button has no recognized accessible name. ";
+    }
+    const rule = getRule(ruleId);
+    if (!rule) throw new Error(`Missing ${ruleId} rule metadata`);
+    const id = JSON.stringify([fileUri, rule.id, location.startOffset, location.endOffset]);
+    if (seen.has(id)) continue;
+    seen.add(id);
     issues.push({
-      id: JSON.stringify([fileUri, rule.id, location.startOffset, location.endOffset]),
+      id,
       ruleId: rule.id,
       title: rule.title,
-      message: "Image has no recognized text alternative. " + rule.remediation,
+      message: message + rule.remediation,
       fileUri,
       range: {
         startLine: location.startLine - 1,
