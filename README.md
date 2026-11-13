@@ -36,10 +36,11 @@ there is no cached state.
 
 ## How the first detector works
 
-1. `parse5` parses the source with source locations enabled.
-2. Safety gates exclude malformed HTML and unsupported Razor syntax.
-3. Native HTML `<img>` elements are inspected once per source position.
-4. Findings copy metadata from `getRule("image-text-alternative")`.
+1. Supported leading directives in `.cshtml` files are masked with spaces.
+2. `parse5` parses the analysis copy with source locations enabled.
+3. Safety gates exclude malformed HTML and unsupported Razor syntax.
+4. Native HTML `<img>` elements are inspected once per source position.
+5. Findings copy metadata from `getRule("image-text-alternative")`.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
 `aria-labelledby`, and `title` are also recognized. Referenced IDs and alternative
@@ -75,13 +76,33 @@ For example, `src="@Model.ImageUrl" alt="@Model.ImageDescription"` is supported;
 the runtime values are not evaluated. A dynamic `src` alone still lacks an
 alternative.
 
-**Any other `@` occurrence causes the entire source to be skipped.** This includes
-`@model` directives, Razor comments, C# blocks, helpers, method calls, interpolated
-attribute values, and even literal email addresses. The same conservative gate
-applies to both HTML and Razor input. This deliberately narrow first increment
-does not yet provide broad Razor-view coverage. Supporting common directives and
-isolating opaque C# regions without changing source offsets is a useful next
-parser increment before expanding coverage.
+For `.cshtml` file URIs, `src/accessibility/razor.ts` masks standalone directives
+in the leading header before parsing:
+
+```cshtml
+@model MyApp.Models.ProductViewModel
+@using MyApp.Models
+@inherits MyApp.BaseView
+@namespace MyApp.Views
+
+<img src="@Model.ImageUrl">
+```
+
+Each directive must use a simple or dotted ASCII name. Indentation, blank lines,
+an initial BOM and an optional trailing semicolon on `@using` are supported.
+Generic types, aliases, inline comments, and multiline directives are not.
+Masking stops at the first line that is neither blank nor a supported directive,
+so directive-like text inside HTML attributes, comments or scripts is not masked.
+It replaces each directive character with a space, preserving source length and
+LF/CRLF/CR line endings. Findings and IDs therefore retain original positions.
+The source is never edited. `.html` inputs do not receive directive masking.
+
+**Any remaining unsupported `@` occurrence causes the entire source to be
+skipped.** This includes directives outside the supported leading header, Razor
+comments, C# blocks (including `@using (...) { ... }`), helpers, method calls,
+interpolated attribute values, and even literal email addresses. Tag-helper
+directives such as `@addTagHelper` remain unsupported because they can change
+rendered markup. This is still a limited source-analysis subset of Razor.
 
 HTML parse errors also cause a whole-file skip, except for a missing doctype
 (normal in fragments). Ordinary omitted container end tags accepted by the HTML
@@ -98,7 +119,7 @@ other rule detectors are implemented in this increment.
 
 ## Next increments
 
-Expand safe Razor coverage, then add the remaining approved detectors one at a
+Expand safe Razor coverage as needed, then add the remaining approved detectors one at a
 time: form controls, buttons, links, document language, and iframes. Reuse the
 parser and metadata catalog; add focused tests with each detector. Active-editor
 integration remains a separate task.

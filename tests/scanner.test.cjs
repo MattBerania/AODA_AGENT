@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { scanAccessibility } = require('../dist/accessibility/scanner.js');
 const { getRule } = require('../dist/accessibility/rules.js');
+const { maskRazorDirectives } = require('../dist/accessibility/razor.js');
 const uri = 'file:///demo/view.cshtml';
 const scan = (source) => scanAccessibility(source, uri);
 
@@ -88,7 +89,7 @@ test('explicit hidden/decorative and server-processed elements are skipped', () 
 
 test('unsupported Razor skips the whole source instead of scanning C# as HTML', () => {
   for (const source of [
-    '@Html.TextBoxFor(m => m.Name)', '@model Example\n<img>',
+    '@Html.TextBoxFor(m => m.Name)',
     '@* <img> *@', '@{ var html = "<img>"; }',
     '<img @Model.Attributes>', '<img src="@(GetUrl())">',
     '<img src="@Url.Content("~/logo.png")">',
@@ -108,4 +109,76 @@ test('malformed input is safe and does not report speculative findings', () => {
 test('empty source and pages without images have no findings', () => {
   assert.deepEqual(scan(''), []);
   assert.deepEqual(scan('<button></button><html lang="en">'), []);
+});
+
+for (const directive of [
+  '@model ProductViewModel', '@model MyApp.Models.ProductViewModel',
+  '@using MyApp.Models', '@using MyApp.Models;',
+  '@inherits MyApp.BaseView', '@namespace MyApp.Views',
+]) {
+  test(`scans images after header directive: ${directive}`, () => {
+    assert.equal(scan(`${directive}\n<img>`).length, 1);
+    assert.deepEqual(scan(`${directive}\n<img alt="@Model.Description">`), []);
+  });
+}
+
+test('masking preserves source length, line endings, image ranges and occurrence offsets', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const lines = ['\uFEFF\t@model MyApp.Product', '', '  @using MyApp.Models', '  <img', ' src="@Model.ImageUrl">'];
+    const source = lines.join(newline);
+    const prepared = maskRazorDirectives(source);
+    assert.equal(prepared.length, source.length);
+    assert.equal(prepared, [
+      ' '.repeat(lines[0].length), '', ' '.repeat(lines[2].length), lines[3], lines[4],
+    ].join(newline));
+    const [issue] = scan(source);
+    assert.equal(scan(source).length, 1);
+    assert.deepEqual(issue.range, {
+      startLine: 3, startCharacter: 2, endLine: 4, endCharacter: lines[4].length,
+    });
+    assert.deepEqual(JSON.parse(issue.id), [uri, issue.ruleId, source.indexOf('<img'), source.length]);
+  }
+});
+
+test('directives at EOF and blank input are handled without creating findings', () => {
+  assert.equal(maskRazorDirectives('@model Product'), ' '.repeat('@model Product'.length));
+  assert.deepEqual(scan('@using MyApp.Models'), []);
+  assert.equal(maskRazorDirectives(''), '');
+  assert.equal(maskRazorDirectives(' \r\n\t'), ' \r\n\t');
+});
+
+test('unsupported or ambiguous headers remain unmasked and cause safe skips', () => {
+  for (const header of [
+    '@using (var resource = CreateResource()) {',
+    '@using var resource = CreateResource();', '@using Alias = MyApp.Models;',
+    '@using static MyApp.Helpers', '@model List<Product>', '@inherits Base<Product>',
+    '@model', '@model Product extra', '@Model Product',
+    '@model Product <img>', '@model Product // comment',
+    '@addTagHelper *, MyApp', '@inject Service Service', '@page',
+  ]) {
+    const source = `${header}\n<img>`;
+    assert.equal(maskRazorDirectives(source), source, header);
+    assert.deepEqual(scan(source), [], header);
+  }
+});
+
+test('masking stops after markup or unsupported Razor begins', () => {
+  for (const source of [
+    '<div>\n@model Product\n</div><img>',
+    '<img src="\n@using MyApp.Models\n">',
+    '<script>\n@namespace MyApp.Views\n</script><img>',
+    '<!--\n@model Product\n--><img>',
+    '@{\n@using MyApp.Models\n}<img>',
+  ]) {
+    assert.equal(maskRazorDirectives(source), source);
+    assert.deepEqual(scan(source), []);
+  }
+  assert.deepEqual(scan('@model Product\n@if (true) { <img> }'), []);
+  assert.deepEqual(scan('@using MyApp.Models\n@addTagHelper *, MyApp\n<img>'), []);
+});
+
+test('header masking applies only to Razor file URIs', () => {
+  const source = '@model Product\n<img>';
+  assert.deepEqual(scanAccessibility(source, 'file:///demo/page.html'), []);
+  assert.equal(scanAccessibility(source, 'file:///demo/PAGE.CSHTML?version=1').length, 1);
 });
