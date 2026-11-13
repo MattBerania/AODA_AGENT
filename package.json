@@ -21,6 +21,11 @@
         "command": "opsAoda.showScanIssues",
         "title": "Show Scan Issues",
         "category": "OPS AODA"
+      },
+      {
+        "command": "opsAoda.openAgentUI",
+        "title": "Open Agent UI",
+        "category": "OPS AODA"
       }
     ]
   },

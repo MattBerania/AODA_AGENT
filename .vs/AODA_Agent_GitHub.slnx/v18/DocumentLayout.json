@@ -1,0 +1,214 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\JS\\AODA_Agent.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:prototype\\JS\\AODA_Agent.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\recognized-names.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:tests\\fixtures\\recognized-names.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\product-view.cshtml||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:tests\\fixtures\\product-view.cshtml||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\missing-names.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:tests\\fixtures\\missing-names.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\CSS\\AODA.css||{A5401142-F49D-43DB-90B1-F57BA349E55C}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:prototype\\CSS\\AODA.css||{A5401142-F49D-43DB-90B1-F57BA349E55C}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\razor.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\accessibility\\razor.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:prototype\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\rules.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\accessibility\\rules.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\types\\accessibility.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\types\\accessibility.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\package-lock.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:package-lock.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 11,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{75188d03-9892-4ae2-abf1-207126247ce5}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:129:0:{1fc202d4-d401-403c-9834-5b218574bb67}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:130:0:{1fc202d4-d401-403c-9834-5b218574bb67}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:131:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:132:0:{116d2292-e37d-41cd-a077-ebacac4c8cc4}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "recognized-names.html",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\recognized-names.html",
+              "RelativeDocumentMoniker": "tests\\fixtures\\recognized-names.html",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\recognized-names.html",
+              "RelativeToolTip": "tests\\fixtures\\recognized-names.html",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2026-11-13T14:12:19.209Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "product-view.cshtml",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\product-view.cshtml",
+              "RelativeDocumentMoniker": "tests\\fixtures\\product-view.cshtml",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\product-view.cshtml",
+              "RelativeToolTip": "tests\\fixtures\\product-view.cshtml",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000759|",
+              "WhenOpened": "2026-11-13T14:12:18.403Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "missing-names.html",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\missing-names.html",
+              "RelativeDocumentMoniker": "tests\\fixtures\\missing-names.html",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\tests\\fixtures\\missing-names.html",
+              "RelativeToolTip": "tests\\fixtures\\missing-names.html",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2026-11-13T14:12:15.736Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "razor.ts",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\razor.ts",
+              "RelativeDocumentMoniker": "src\\accessibility\\razor.ts",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\razor.ts",
+              "RelativeToolTip": "src\\accessibility\\razor.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-11-13T14:07:27.718Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "AODA_Agent.js",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\JS\\AODA_Agent.js",
+              "RelativeDocumentMoniker": "prototype\\JS\\AODA_Agent.js",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\JS\\AODA_Agent.js*",
+              "RelativeToolTip": "prototype\\JS\\AODA_Agent.js*",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAMAAAAAcAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2026-11-12T13:49:31.537Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "index.html",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\index.html",
+              "RelativeDocumentMoniker": "prototype\\index.html",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\index.html",
+              "RelativeToolTip": "prototype\\index.html",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2026-11-12T13:49:05.917Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "AODA.css",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\CSS\\AODA.css",
+              "RelativeDocumentMoniker": "prototype\\CSS\\AODA.css",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\prototype\\CSS\\AODA.css",
+              "RelativeToolTip": "prototype\\CSS\\AODA.css",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgAAAASAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003000|",
+              "WhenOpened": "2026-11-12T13:48:01.555Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "rules.ts",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\rules.ts",
+              "RelativeDocumentMoniker": "src\\accessibility\\rules.ts",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\accessibility\\rules.ts",
+              "RelativeToolTip": "src\\accessibility\\rules.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-11-12T13:47:06.151Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "accessibility.ts",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\types\\accessibility.ts",
+              "RelativeDocumentMoniker": "src\\types\\accessibility.ts",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\src\\types\\accessibility.ts",
+              "RelativeToolTip": "src\\types\\accessibility.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-11-12T13:47:05.036Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "package-lock.json",
+              "DocumentMoniker": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\package-lock.json",
+              "RelativeDocumentMoniker": "package-lock.json",
+              "ToolTip": "C:\\Users\\NormanB2\\source\\repos\\AODA_Agent_GitHub\\package-lock.json",
+              "RelativeToolTip": "package-lock.json",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
+              "WhenOpened": "2026-11-12T13:47:00.309Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
