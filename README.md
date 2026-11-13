@@ -69,16 +69,21 @@ no edit/save event listeners. Files are selected by `.html` or `.cshtml` extensi
 can also be scanned through a remote or untitled document URI. An unnamed
 `Untitled-1` document is rejected until it has a supported filename.
 
-The minimal integration has two files:
+The editor integration uses these files:
 
 - `src/extension.ts` exports `activate()` and passes the VS Code API and context
-  to `registerCurrentPageScanning()`.
+  to `registerCurrentPageScanning()` and `registerIssuePresentation()`. It returns
+  the scanner integration API to extension consumers.
 - `src/currentPageScanning.ts` registers `opsAoda.scanCurrentPage`, reads
   `activeTextEditor.document.getText()` and `uri.toString()`, calls the scanner,
   and converts each shared issue into a VS Code diagnostic. The handler returns
   `AccessibilityIssue[]` to command callers. Disposables are registered with the
   extension context for cleanup. The API parameter lets Node tests exercise the
   real command handler through a simulated host.
+- `src/issuePresentation.ts` registers an issue picker and occurrence navigation,
+  displays metadata and source text, and rejects stale source versions.
+- `src/types/scannerIntegration.ts` defines the read-only scan snapshot, issue
+  context and integration API contracts.
 
 The existing `scanAccessibility()` and shared types remain independent of VS
 Code. The command uses URI paths to identify supported extensions and preserves
@@ -88,6 +93,76 @@ without changing their zero-based coordinates.
 The local extension identifier is `ops-aoda-local.ops-aoda-agent`.
 `ops-aoda-local` is a development publisher placeholder. Marketplace publishing
 would require the team's registered publisher identifier.
+
+## Scanner-side integration
+
+After running **OPS AODA: Scan Current Page**, run **OPS AODA: Show Scan Issues**
+from the Command Palette. Choose a finding to select its opening tag and display
+the catalog description, remediation guidance, source snippet and scan-time
+document version in the **OPS AODA Issues** Output channel.
+
+The integration API returned by `activate()` exposes:
+
+| Member | Purpose |
+| --- | --- |
+| `getLatestScan()` | Latest explicit scan snapshot, or `undefined` before a scan or after failure |
+| `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on scan failure |
+| `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original opening-tag text and document version |
+
+A snapshot contains the serialized file URI, document version and read-only
+issues. Snapshots and nested metadata are copied and frozen so consumers cannot
+change each other's results. Successful scans replace prior contexts, including
+when the new result is empty. Unsupported-file requests leave the prior snapshot
+intact. Unknown or superseded occurrence IDs return `undefined`.
+
+Components inside this extension can receive the same `scanner` instance created
+in `activate()`. A separate VS Code extension can activate this extension and
+consume its exported API, using the integration types from this repository:
+
+```typescript
+import * as vscode from "vscode";
+import type { ScannerIntegration } from "./types/scannerIntegration";
+
+const extension = vscode.extensions.getExtension<ScannerIntegration>(
+  "ops-aoda-local.ops-aoda-agent",
+);
+if (!extension) throw new Error("OPS AODA Agent is unavailable");
+const scanner = await extension.activate();
+
+console.log(scanner.getLatestScan()?.issues ?? []);
+context.subscriptions.push(scanner.onDidChangeScan((snapshot) => {
+  console.log(snapshot?.issues ?? []);
+}));
+```
+
+The existing `opsAoda.scanCurrentPage` command still returns `AccessibilityIssue[]`
+to callers. `opsAoda.showIssue` accepts an occurrence ID for programmatic issue
+navigation. The `context` in the example is the consuming extension's activation
+context, and the type import path must point to its copy of the shared contract.
+
+Issue presentation checks both the current document version and original source
+snippet before navigating. It rejects results that became outdated during a
+picker interaction or document open. Scan events clear previously displayed
+details. Subscribers should compare the captured `documentVersion` and source
+before preparing any future edit. Findings remain scan-time snapshots until the
+explicit scan command runs again.
+
+The standalone prototype sidebar and future Copilot code can use this contract
+when those components are integrated. Automatic edit/save refresh and applying
+proposed fixes remain separate tasks. Empty scan results retain the documented
+coverage ambiguity between no confirmed findings and skipped markup.
+
+Manual verification in the Extension Development Host:
+
+1. Scan `tests/fixtures/legacy/contact.cshtml`, then run **Show Scan Issues**.
+2. Select one of the five findings and check the selected source tag and Output
+   channel description/remediation.
+3. Edit the document without scanning and select a finding again. Expect a
+   warning that the source changed.
+
+Automated tests simulate VS Code and exercise the real scanner, snapshot events,
+metadata handoff, selection, disposal and stale-result races. The new presentation
+controls still need their manual host check.
 
 ## How the detectors work
 

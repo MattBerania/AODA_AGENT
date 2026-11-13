@@ -15,6 +15,11 @@
         "command": "opsAoda.scanCurrentPage",
         "title": "Scan Current Page",
         "category": "OPS AODA"
+      },
+      {
+        "command": "opsAoda.showScanIssues",
+        "title": "Show Scan Issues",
+        "category": "OPS AODA"
       }
     ]
   },
