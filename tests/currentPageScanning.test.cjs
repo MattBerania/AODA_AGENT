@@ -1,10 +1,13 @@
-const { test } = require('node:test');
+const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync, existsSync } = require('node:fs');
 const { join } = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { registerCurrentPageScanning, SCAN_CURRENT_PAGE_COMMAND } = require('../dist/currentPageScanning.js');
+const { registerCurrentPageScanning, SCAN_CURRENT_PAGE_COMMAND, SCAN_DEBOUNCE_MS } = require('../dist/currentPageScanning.js');
 const { registerIssuePresentation, SHOW_SCAN_ISSUES_COMMAND, SHOW_ISSUE_COMMAND } = require('../dist/issuePresentation.js');
+
+// Advance the debounce clock explicitly instead of waiting in real time.
+beforeEach((t) => t.mock.timers.enable({ apis: ['setTimeout'] }));
 
 function makeDocument(source, uriString = 'file:///demo/contact.cshtml') {
   return {
@@ -52,14 +55,22 @@ function makeHost(document) {
     fire(value) { for (const listener of this.listeners) listener(value); }
     dispose() { this.listeners.clear(); }
   }
+  const events = {
+    edits: new EventEmitter(), activeEditor: new EventEmitter(), closedDocument: new EventEmitter(),
+  };
   const api = {
     Range, Diagnostic, EventEmitter,
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
       activeTextEditor: document ? { document } : undefined,
+      onDidChangeActiveTextEditor: events.activeEditor.event,
       showInformationMessage(message) { messages.info.push(message); return Promise.resolve(); },
       showWarningMessage(message) { messages.warning.push(message); return Promise.resolve(); },
       showErrorMessage(message) { messages.error.push(message); return Promise.resolve(); },
+    },
+    workspace: {
+      onDidChangeTextDocument: events.edits.event,
+      onDidCloseTextDocument: events.closedDocument.event,
     },
     languages: {
       createDiagnosticCollection(name) {
@@ -77,8 +88,17 @@ function makeHost(document) {
   const context = { subscriptions: [] };
   const integration = registerCurrentPageScanning(api, context);
   return {
-    api, collection, messages, context, commands, integration,
+    api, collection, messages, context, commands, integration, events,
     run: () => commands.get(SCAN_CURRENT_PAGE_COMMAND)(),
+    edit(source, edited = api.window.activeTextEditor.document) {
+      edited.getText = makeDocument(source, edited.uri.toString()).getText;
+      edited.version++;
+      events.edits.fire({ document: edited, contentChanges: [{ text: source }] });
+    },
+    switchTo(next) {
+      api.window.activeTextEditor = next ? { document: next } : undefined;
+      events.activeEditor.fire(api.window.activeTextEditor);
+    },
   };
 }
 
@@ -87,6 +107,7 @@ test('extension manifest points to the compiled entry point and registered comma
   assert.match(manifest.name, /^[a-z0-9][a-z0-9-]*$/);
   assert.match(manifest.publisher, /^[a-z0-9][a-z0-9-]*$/);
   assert.equal(manifest.engines.vscode, '^1.95.0');
+  assert.ok(manifest.activationEvents.includes('onStartupFinished'));
   assert.equal(manifest.main, './dist/extension.js');
   assert.ok(existsSync(join(__dirname, '..', manifest.main)));
   assert.ok(manifest.contributes.commands.some((command) => command.command === SCAN_CURRENT_PAGE_COMMAND));
@@ -240,7 +261,7 @@ test('unexpected read failures are reported and clear the previous snapshot', ()
 
 test('command and diagnostics are registered for disposal with the extension', () => {
   const host = makeHost();
-  assert.equal(host.context.subscriptions.length, 3);
+  assert.equal(host.context.subscriptions.length, 6);
   for (const disposable of host.context.subscriptions) disposable.dispose();
   assert.equal(host.collection.disposed, true);
   assert.equal(host.commands.size, 0);
@@ -371,6 +392,7 @@ function makePresentationHost(document = makeDocument('<img>')) {
   };
   host.api.Uri = { parse: (uri) => makeDocument('', uri).uri };
   host.api.workspace = {
+    ...host.api.workspace,
     async openTextDocument(uri) {
       if (state.beforeOpen) await state.beforeOpen();
       const found = state.documents.get(uri.toString());
@@ -510,4 +532,233 @@ test('presentation commands, result subscriptions and output channel are dispose
   for (const disposable of host.context.subscriptions) disposable.dispose();
   assert.equal(host.output.disposed, true);
   assert.equal(host.commands.size, 0);
+});
+
+test('initial active document is scanned automatically without a command or success notification', (t) => {
+  const host = makeHost(makeDocument('<img>'));
+  assert.equal(host.integration.getLatestScan(), undefined);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS - 1);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  t.mock.timers.tick(1);
+  assert.equal(host.integration.getLatestScan().issues[0].ruleId, 'image-text-alternative');
+  assert.equal(host.messages.info.length, 0);
+});
+
+test('rapid typing resets one timer and scans only after the last edit settles', (t) => {
+  const host = makeHost(makeDocument('<img>'));
+  const completed = [];
+  host.integration.onDidChangeScan((snapshot) => { if (snapshot) completed.push(snapshot); });
+  host.edit('<img alt="');
+  t.mock.timers.tick(150);
+  host.edit('<img alt="Map');
+  t.mock.timers.tick(150);
+  host.edit('<img alt="Map">');
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS - 1);
+  assert.equal(completed.length, 0);
+  t.mock.timers.tick(1);
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].documentVersion, 4);
+  assert.deepEqual(completed[0].issues, []);
+  t.mock.timers.tick(5000);
+  assert.equal(completed.length, 1);
+});
+
+test('editing invalidates stale diagnostics and contexts immediately, then publishes fresh ranges', (t) => {
+  const document = makeDocument('<img>');
+  const host = makeHost(document);
+  const [oldIssue] = host.run();
+  const events = [];
+  host.integration.onDidChangeScan((snapshot) => events.push(snapshot));
+  host.edit('\r\n  <img>\r\n');
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.integration.getIssueContext(oldIssue.id), undefined);
+  assert.equal(host.collection.entries.size, 0);
+  assert.deepEqual(events, [undefined]);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  const snapshot = host.integration.getLatestScan();
+  assert.equal(snapshot.fileUri, document.uri.toString());
+  assert.equal(snapshot.documentVersion, 2);
+  assert.deepEqual(snapshot.issues[0].range,
+    { startLine: 1, startCharacter: 2, endLine: 1, endCharacter: 7 });
+  assert.equal(events[1], snapshot);
+  assert.equal(host.collection.entries.get(document.uri).length, 1);
+});
+
+test('background edits do not replace the active page snapshot', (t) => {
+  const host = makeHost(makeDocument('<img>', 'file:///active.html'));
+  host.run();
+  const snapshot = host.integration.getLatestScan();
+  const background = makeDocument('<button></button>', 'file:///background.html');
+  host.edit('<button>Save</button>', background);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), snapshot);
+});
+
+test('non-content editor notifications do not trigger another scan', (t) => {
+  const document = makeDocument('<img>');
+  const host = makeHost(document);
+  host.run();
+  const snapshot = host.integration.getLatestScan();
+  host.events.edits.fire({ document, contentChanges: [] });
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), snapshot);
+});
+
+test('switching pages cancels the previous timer and scans the new active document', (t) => {
+  const first = makeDocument('<img>', 'file:///first.html');
+  const second = makeDocument('<button></button>', 'file:///second.cshtml');
+  const host = makeHost(first);
+  const completed = [];
+  host.integration.onDidChangeScan((snapshot) => { if (snapshot) completed.push(snapshot); });
+  t.mock.timers.tick(150);
+  host.switchTo(second);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(completed.length, 1);
+  assert.equal(completed[0].fileUri, second.uri.toString());
+  assert.equal(completed[0].issues[0].ruleId, 'button-name');
+  assert.ok(!host.collection.entries.has(first.uri));
+});
+
+test('switching to unsupported content or no editor clears the previous page results', (t) => {
+  const document = makeDocument('<img>');
+  const host = makeHost(document);
+  host.run();
+  host.switchTo(makeDocument('const x = 1;', 'file:///app.ts'));
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.collection.entries.size, 0);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.messages.warning.length, 0);
+  host.switchTo(document);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan().issues.length, 1);
+  host.switchTo(undefined);
+  assert.equal(host.integration.getLatestScan(), undefined);
+});
+
+test('unsupported initial documents and their edits stay idle', (t) => {
+  const document = makeDocument('const x = 1;', 'file:///app.ts');
+  const host = makeHost(document);
+  document.getText = () => { throw new Error('Unsupported content must not be scanned'); };
+  host.events.edits.fire({ document, contentChanges: [{ text: 'x' }] });
+  t.mock.timers.tick(5000);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.messages.error.length, 0);
+});
+
+test('closing a document cancels pending work and clears its existing snapshot', (t) => {
+  const document = makeDocument('<img>');
+  const host = makeHost(document);
+  host.run();
+  host.edit('<img src="x">');
+  document.isClosed = true;
+  host.events.closedDocument.fire(document);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.collection.entries.size, 0);
+
+  const reopened = makeDocument('<img>', document.uri.toString());
+  host.switchTo(reopened);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan().issues.length, 1);
+  reopened.isClosed = true;
+  host.events.closedDocument.fire(reopened);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.collection.entries.size, 0);
+});
+
+test('queued callbacks verify the document is still active and open', (t) => {
+  const first = makeDocument('<img>');
+  const host = makeHost(first);
+  host.api.window.activeTextEditor = { document: makeDocument('<button></button>') };
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  host.switchTo(first);
+  first.isClosed = true;
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), undefined);
+});
+
+test('manual scanning runs immediately and cancels a pending automatic scan', (t) => {
+  const host = makeHost(makeDocument('<img>'));
+  const completed = [];
+  host.integration.onDidChangeScan((snapshot) => { if (snapshot) completed.push(snapshot); });
+  host.edit('<img src="x">');
+  assert.equal(host.run().length, 1);
+  assert.equal(completed.length, 1);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(completed.length, 1);
+  assert.equal(host.messages.info.length, 1);
+});
+
+test('an approved-edit consumer can refresh immediately and avoid a duplicate delayed scan', (t) => {
+  const host = makeHost(makeDocument('<img>'));
+  const [issue] = host.run();
+  const completed = [];
+  host.integration.onDidChangeScan((snapshot) => { if (snapshot) completed.push(snapshot); });
+  // Simulate source changed by an approved edit. Applying edits belongs to its consumer.
+  host.edit('<img alt="Office">');
+  const refreshed = host.integration.refreshCurrentPage();
+  assert.equal(refreshed.documentVersion, 2);
+  assert.deepEqual(refreshed.issues, []);
+  assert.equal(host.integration.getIssueContext(issue.id), undefined);
+  assert.equal(completed.length, 1);
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(completed.length, 1);
+  assert.equal(host.messages.info.length, 1);
+});
+
+test('immediate refresh handles missing and unsupported active documents', () => {
+  const host = makeHost();
+  assert.equal(host.integration.refreshCurrentPage(), undefined);
+  host.switchTo(makeDocument('', 'file:///app.ts'));
+  assert.equal(host.integration.refreshCurrentPage(), undefined);
+  assert.equal(host.messages.info.length, 0);
+  assert.equal(host.messages.warning.length, 0);
+});
+
+test('automatic scan failures are caught once without retrying on a loop', (t) => {
+  const document = makeDocument('<img>');
+  const host = makeHost(document);
+  document.getText = () => { throw new Error('Read failed'); };
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.messages.error.length, 1);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  t.mock.timers.tick(5000);
+  assert.equal(host.messages.error.length, 1);
+});
+
+test('deactivation cancels pending timers and removes editor listeners', (t) => {
+  const host = makeHost(makeDocument('<img>'));
+  for (const disposable of host.context.subscriptions) disposable.dispose();
+  host.edit('<img src="x">');
+  t.mock.timers.tick(5000);
+  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.integration.refreshCurrentPage(), undefined);
+  assert.equal(host.events.edits.listeners.size, 0);
+  assert.equal(host.events.activeEditor.listeners.size, 0);
+  assert.equal(host.events.closedDocument.listeners.size, 0);
+});
+
+test('navigating an issue in the same editor retains its snapshot and detail display', async (t) => {
+  const document = makeDocument('<img>');
+  const host = makePresentationHost(document);
+  host.run();
+  await host.pick();
+  const snapshot = host.integration.getLatestScan();
+  const detail = host.output.text;
+  host.events.activeEditor.fire({ document });
+  t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+  assert.equal(host.integration.getLatestScan(), snapshot);
+  assert.equal(host.output.text, detail);
+});
+
+test('editing clears displayed details while waiting for updated findings', async () => {
+  const host = makePresentationHost();
+  host.run();
+  await host.pick();
+  assert.ok(host.output.text.length > 0);
+  host.edit('<img alt="Office">');
+  assert.equal(host.output.text, '');
+  assert.equal(host.integration.getLatestScan(), undefined);
 });

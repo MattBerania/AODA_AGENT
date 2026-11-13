@@ -63,8 +63,8 @@ extension and opens an Extension Development Host window.
    unsupported Razor produces zero findings and a message mentioning skipped
    markup. Expected fixture results are documented in that directory's README.
 
-Results remain a snapshot until another explicit command invocation. There are
-no edit/save event listeners. Files are selected by `.html` or `.cshtml` extension
+The active supported document is scanned automatically after a 400 ms typing
+pause and after switching pages. Files are selected by `.html` or `.cshtml` extension
 (case-insensitive), independently of the editor's language mode. A supported name
 can also be scanned through a remote or untitled document URI. An unnamed
 `Untitled-1` document is rejected until it has a supported filename.
@@ -79,7 +79,8 @@ The editor integration uses these files:
   and converts each shared issue into a VS Code diagnostic. The handler returns
   `AccessibilityIssue[]` to command callers. Disposables are registered with the
   extension context for cleanup. The API parameter lets Node tests exercise the
-  real command handler through a simulated host.
+  real command handler through a simulated host. `scanDocument()` is the shared
+  operation for manual, automatic and consumer-requested scans.
 - `src/issuePresentation.ts` registers an issue picker and occurrence navigation,
   displays metadata and source text, and rejects stale source versions.
 - `src/types/scannerIntegration.ts` defines the read-only scan snapshot, issue
@@ -94,6 +95,40 @@ The local extension identifier is `ops-aoda-local.ops-aoda-agent`.
 `ops-aoda-local` is a development publisher placeholder. Marketplace publishing
 would require the team's registered publisher identifier.
 
+## Automatic refresh
+
+The extension activates after VS Code startup and schedules the current supported
+document for scanning. `onDidChangeTextDocument` schedules another scan when the
+active editor's content changes. `scheduleScan()` cancels the previous timeout
+and starts one 400 ms timeout. Each further edit restarts the delay. The callback
+checks that its document is still open and active, then reads the latest buffer.
+No timer repeats itself after scanning.
+
+Edits immediately clear outdated diagnostics, issue contexts and displayed
+details. Consumers receive `onDidChangeScan(undefined)` when a snapshot is
+invalidated, followed by the new snapshot after the typing pause. Background-file
+edits and notifications without content changes are ignored. Switching pages
+cancels pending work, clears the previous page and schedules the supported new
+page. Closing a scanned document clears its results. Disposal removes listeners
+and cancels pending work.
+
+Automatic scans update Problems and subscribers without success notifications.
+The manual command still scans immediately and shows its result summary. It
+cancels pending automatic work to avoid duplicate scans. After a consuming
+component successfully applies an approved edit to the active page, it can call:
+
+```typescript
+const snapshot = scanner.refreshCurrentPage();
+```
+
+This synchronous API returns the refreshed snapshot or `undefined` when scanning
+fails or the active document is unsupported. It also cancels any queued scan.
+Applying and approving edits remains the responsibility of the consuming component.
+The scanner retains its documented Razor and malformed-markup coverage limits.
+
+Tests use Node's simulated timers to verify the debounce delay, timer resets,
+file switches, disposal, source ranges and immediate post-edit refresh.
+
 ## Scanner-side integration
 
 After running **OPS AODA: Scan Current Page**, run **OPS AODA: Show Scan Issues**
@@ -105,15 +140,17 @@ The integration API returned by `activate()` exposes:
 
 | Member | Purpose |
 | --- | --- |
-| `getLatestScan()` | Latest explicit scan snapshot, or `undefined` before a scan or after failure |
-| `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on scan failure |
+| `getLatestScan()` | Latest snapshot, or `undefined` before a scan or after invalidation/failure |
+| `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on invalidation/failure |
 | `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original opening-tag text and document version |
+| `refreshCurrentPage()` | Immediately refresh the supported active document and return its snapshot |
 
 A snapshot contains the serialized file URI, document version and read-only
 issues. Snapshots and nested metadata are copied and frozen so consumers cannot
 change each other's results. Successful scans replace prior contexts, including
 when the new result is empty. Unsupported-file requests leave the prior snapshot
-intact. Unknown or superseded occurrence IDs return `undefined`.
+intact unless an editor event has already invalidated it. Unknown or superseded
+occurrence IDs return `undefined`.
 
 Components inside this extension can receive the same `scanner` instance created
 in `activate()`. A separate VS Code extension can activate this extension and
@@ -144,12 +181,12 @@ Issue presentation checks both the current document version and original source
 snippet before navigating. It rejects results that became outdated during a
 picker interaction or document open. Scan events clear previously displayed
 details. Subscribers should compare the captured `documentVersion` and source
-before preparing any future edit. Findings remain scan-time snapshots until the
-explicit scan command runs again.
+before preparing any future edit. Findings always carry the version of the
+source that produced them.
 
 The standalone prototype sidebar and future Copilot code can use this contract
-when those components are integrated. Automatic edit/save refresh and applying
-proposed fixes remain separate tasks. Empty scan results retain the documented
+when those components are integrated. Applying proposed fixes remains a separate
+task. Empty scan results retain the documented
 coverage ambiguity between no confirmed findings and skipped markup.
 
 Manual verification in the Extension Development Host:
@@ -157,12 +194,14 @@ Manual verification in the Extension Development Host:
 1. Scan `tests/fixtures/legacy/contact.cshtml`, then run **Show Scan Issues**.
 2. Select one of the five findings and check the selected source tag and Output
    channel description/remediation.
-3. Edit the document without scanning and select a finding again. Expect a
-   warning that the source changed.
+3. Add `alt="Office"` to the first image and pause briefly. Expect the finding
+   count to drop from five to four automatically, and any old detail text to clear.
+4. Undo the edit and pause. Expect five findings again. Switch to an unsupported
+   file and verify the prior page's results clear.
 
 Automated tests simulate VS Code and exercise the real scanner, snapshot events,
-metadata handoff, selection, disposal and stale-result races. The new presentation
-controls still need their manual host check.
+metadata handoff, selection, disposal and stale-result races. The presentation
+controls and automatic refresh still need their manual host check.
 
 ## How the detectors work
 
@@ -348,8 +387,8 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. The explicit current-page command displays diagnostics in
-Problems. Repository scanning, automatic rescanning, Copilot integration and
-fixes remain separate tasks. All six approved detectors have focused tests for
+Problems and refreshes the active supported document after edits. Repository
+scanning, Copilot integration and fixes remain separate tasks. All six approved detectors have focused tests for
 their documented subsets.
 
 ## Next increments

@@ -1,7 +1,7 @@
 import type { Event } from "vscode";
 import type { AccessibilityIssue, AccessibilityRule } from "./accessibility";
 
-/** The latest explicit scan, tied to the editor buffer version it analyzed. */
+/** The latest scan, tied to the editor buffer version it analyzed. */
 export interface ScanSnapshot {
   readonly fileUri: string;
   readonly documentVersion: number;
@@ -21,4 +21,6 @@ export interface ScannerIntegration {
   readonly onDidChangeScan: Event<ScanSnapshot | undefined>;
   getLatestScan(): ScanSnapshot | undefined;
   getIssueContext(issueId: string): IssueContext | undefined;
+  /** Immediately refresh the active supported page, for example after an approved edit. */
+  refreshCurrentPage(): ScanSnapshot | undefined;
 }
