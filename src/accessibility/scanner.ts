@@ -118,7 +118,7 @@ function mayHaveNameFromContent(element: Element): boolean {
 }
 
 /**
- * MVP detectors: native HTML images, buttons and hyperlinks missing names.
+ * MVP checks for image alternatives, button/link names and document language.
  * Empty results mean no confirmed finding in the supported subset, not compliance.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
@@ -141,8 +141,9 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
   const issues: AccessibilityIssue[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
-    if (!["img", "button", "a"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    if (!["img", "button", "a", "html"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
     const location = node.sourceCodeLocation?.startTag;
+    // In particular, an implicit html element has no source-backed opening tag.
     if (!location || isExcluded(node)) continue;
     let ruleId: string;
     let message: string;
@@ -155,10 +156,17 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
       if (buttonMayHaveName(node, nodes)) continue;
       ruleId = "button-name";
       message = "Button has no recognized accessible name. ";
-    } else {
+    } else if (node.tagName === "a") {
       if (!node.attrs.some(({ name }) => name === "href") || mayHaveNameFromContent(node)) continue;
       ruleId = "link-name";
       message = "Link has no recognized accessible name. ";
+    } else {
+      const language = node.attrs.find(({ name }) => name === "lang");
+      // Recognize nonblank declarations, including simple dynamic Razor values.
+      // Language-tag validity and correspondence to page content are not checked.
+      if (language && language.value.trim() !== "") continue;
+      ruleId = "document-language";
+      message = "Explicit HTML element has no non-empty lang declaration. ";
     }
     const rule = getRule(ruleId);
     if (!rule) throw new Error(`Missing ${ruleId} rule metadata`);

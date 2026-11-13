@@ -354,3 +354,72 @@ test('all three detectors share stable finding generation and source ordering', 
   assert.deepEqual(scan(source), issues);
   assert.notEqual(scanAccessibility(source, 'file:///other.html')[0].id, issues[0].id);
 });
+
+test('explicit html without lang returns complete language metadata and opening-tag range', () => {
+  const rule = getRule('document-language');
+  assert.deepEqual(scan('<html><body>Content</body></html>'), [{
+    id: JSON.stringify([uri, rule.id, 0, 6]), ruleId: rule.id, title: rule.title,
+    message: 'Explicit HTML element has no non-empty lang declaration. ' + rule.remediation,
+    fileUri: uri,
+    range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 6 },
+    category: rule.category, severity: rule.severity, wcagCriteria: rule.wcagCriteria,
+  }]);
+});
+
+for (const opening of ['<html>', '<html lang>', '<html lang="">', "<html lang='  '>", '<HTML LANG="">']) {
+  test(`reports missing or blank HTML language: ${opening}`, () => {
+    assert.deepEqual(scan(`${opening}<body>Content</body></html>`).map((issue) => issue.ruleId),
+      ['document-language']);
+  });
+}
+
+for (const opening of [
+  '<html lang="en">', '<html lang="fr">', '<HTML LANG="en-CA">',
+  "<html lang='fr-CA'>", '<html lang=" en ">', '<html lang="@Model.Language">',
+]) {
+  test(`recognizes declared or dynamic HTML language: ${opening}`, () => {
+    assert.deepEqual(scan(`${opening}<body>Content</body></html>`), []);
+  });
+}
+
+test('fragments and implicit html elements never receive a document-language finding', () => {
+  for (const source of [
+    '', '<h1>Product details</h1>', '@model ProductViewModel\n<h1>Product details</h1>',
+    '<!doctype html><head><title>Example</title></head><body>Content</body>',
+    '<!-- <html> --><p>Content</p>', '<script>const markup = "<html>";</script>',
+    '<template><html></html></template>',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('document-language ranges and IDs preserve original positions after directives and doctype', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const source = `@model Product${newline}<!doctype html>${newline}<html${newline} class="page">${newline}<body>Content</body></html>`;
+    const [issue] = scan(source);
+    assert.equal(scan(source).length, 1);
+    assert.deepEqual(issue.range, { startLine: 2, startCharacter: 0, endLine: 3, endCharacter: 14 });
+    const start = source.indexOf('<html');
+    assert.deepEqual(JSON.parse(issue.id), [uri, 'document-language', start, source.indexOf('>', start) + 1]);
+  }
+});
+
+test('unsupported Razor and malformed language markup continue to skip safely', () => {
+  for (const source of [
+    '<html lang="@GetLanguage()"><body>Content</body></html>',
+    '@{ var language = GetLanguage(); }\n<html></html>',
+    '<html lang="en" lang="fr"></html>', '<html lang="',
+    '<html runat="server"><body>Content</body></html>',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('language checks do not claim to validate nonblank language tags', () => {
+  assert.deepEqual(scan('<html lang="not_a_valid_language_tag"><body>Content</body></html>'), []);
+});
+
+test('language and element findings combine in source order without duplicates', () => {
+  const source = '<!doctype html><html><body><a href="#"></a><button></button><img></body></html>';
+  const findings = scan(source);
+  assert.deepEqual(findings.map((issue) => issue.ruleId),
+    ['document-language', 'link-name', 'button-name', 'image-text-alternative']);
+  assert.equal(new Set(findings.map((issue) => issue.id)).size, 4);
+  assert.deepEqual(scan(source), findings);
+});

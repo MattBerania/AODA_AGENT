@@ -1,8 +1,8 @@
 # OPS AODA Agent
 
 Independent TypeScript source scanner for an accessibility-assistant VS Code
-extension. The scanner implements **`image-text-alternative`, `button-name`, and
-`link-name`**.
+extension. The scanner implements **`image-text-alternative`, `button-name`,
+`link-name`, and `document-language`**.
 The existing six-rule catalog is retained for subsequent detectors.
 
 ## Run and verify
@@ -40,7 +40,7 @@ there is no cached state.
 1. Supported leading directives in `.cshtml` files are masked with spaces.
 2. `parse5` parses the analysis copy with source locations enabled.
 3. Safety gates exclude malformed HTML and unsupported Razor syntax.
-4. Native HTML images, buttons and hyperlinks are inspected once per rule and source position.
+4. Supported native HTML elements are inspected once per rule and source position.
 5. Findings copy metadata from the existing rule catalog via `getRule`.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
@@ -101,6 +101,20 @@ an alternative receives an image finding. An unnamed link containing only
 name uncertain because of possible filename fallback; only the image is reported.
 The shared content-naming helper retains the documented button limitations,
 including no CSS or browser accessible-name computation.
+
+### Document language
+
+The `document-language` detector reports an explicit `<html>` opening tag with
+a missing or whitespace-only `lang` attribute. Any nonblank value, including a
+supported simple Razor value such as `lang="@Model.Language"`, avoids a finding.
+Language-tag validity and whether the declaration matches the page content are
+not checked. This scanner parses HTML, not XHTML; it checks `lang`, not `xml:lang`.
+
+parse5 can create an implicit HTML root for fragments, so this detector requires
+a source-backed opening tag. A Razor view without `<html>` receives no language
+finding: its shared layout may declare the language. Existing malformed-input,
+unsupported-Razor and server-processing skips still apply. Findings cover the
+original opening tag and reuse catalog metadata for WCAG 3.1.1.
 
 Ranges cover the complete opening tag in the **original source**, using zero-based
 lines and UTF-16 characters with an exclusive end. parse5's one-based line/column
@@ -164,11 +178,11 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. No VS Code UI, file scanning, Copilot integration, or fixes
-are implemented. Form, language and iframe detectors remain to be built.
+are implemented. Form and iframe detectors remain to be built.
 
 ## Next increments
 
 Expand safe Razor coverage as needed, then add the remaining approved detectors one at a
-time: form controls, document language, and iframes. Reuse the
+time: form controls and iframes. Reuse the
 parser and metadata catalog; add focused tests with each detector. Active-editor
 integration remains a separate task.
