@@ -79,10 +79,15 @@ function buttonMayHaveName(button: Element, nodes: Element[]): boolean {
     if (parent.tagName === "label") return true;
     parent = parent.parentNode;
   }
+  return mayHaveNameFromContent(button);
+}
 
-  // An unclosed button or changed/dynamic semantics is outside this subset.
-  if (!button.sourceCodeLocation?.endTag || button.attrs.some(({ name }) => name === "role")) return true;
-  const pending: Node[] = [button];
+/** Shared conservative naming check for native buttons and hyperlinks. */
+function mayHaveNameFromContent(element: Element): boolean {
+  if (hasNamingAttribute(element)) return true;
+  // An unclosed element or changed/dynamic semantics is outside this subset.
+  if (!element.sourceCodeLocation?.endTag || element.attrs.some(({ name }) => name === "role")) return true;
+  const pending: Node[] = [element];
   while (pending.length > 0) {
     const node = pending.pop()!;
     if ("value" in node && node.value.trim() !== "") return true;
@@ -90,15 +95,17 @@ function buttonMayHaveName(button: Element, nodes: Element[]): boolean {
     if (["script", "style", "template"].includes(node.tagName)) continue;
     // Tag Helpers/server controls and dynamic attributes may generate names or
     // alter visibility. They are uncertain, not confirmed empty content.
+    // A simple dynamic href changes the destination, not the naming content.
     if (node.attrs.some(({ name, value }) =>
-      name === "runat" || name.startsWith("asp-") || value.includes("@"),
+      name === "runat" || name.startsWith("asp-") ||
+      (value.includes("@") && !(node === element && node.tagName === "a" && name === "href")),
     )) return true;
     // Presentation roles remove semantics, not the text of a nested span.
     if (isExcluded(node, false)) continue;
     if (node.namespaceURI !== "http://www.w3.org/1999/xhtml" || node.tagName.includes("-")) return true;
     if (["input", "select", "textarea", "object", "iframe", "canvas", "audio", "video"].includes(node.tagName)) return true;
     if (node.tagName === "img" && isExcluded(node)) continue;
-    if (node !== button && hasNamingAttribute(node)) return true;
+    if (node !== element && hasNamingAttribute(node)) return true;
     if (node.tagName === "img") {
       const alt = node.attrs.find(({ name }) => name === "alt");
       // Missing alt has possible filename fallback; the image rule handles it.
@@ -111,7 +118,7 @@ function buttonMayHaveName(button: Element, nodes: Element[]): boolean {
 }
 
 /**
- * MVP detectors: native HTML images and buttons missing recognized alternatives.
+ * MVP detectors: native HTML images, buttons and hyperlinks missing names.
  * Empty results mean no confirmed finding in the supported subset, not compliance.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
@@ -134,7 +141,7 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
   const issues: AccessibilityIssue[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
-    if (!["img", "button"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
+    if (!["img", "button", "a"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
     const location = node.sourceCodeLocation?.startTag;
     if (!location || isExcluded(node)) continue;
     let ruleId: string;
@@ -144,10 +151,14 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
       if (node.attrs.some(({ name }) => name === "alt") || hasNamingAttribute(node)) continue;
       ruleId = "image-text-alternative";
       message = "Image has no recognized text alternative. ";
-    } else {
+    } else if (node.tagName === "button") {
       if (buttonMayHaveName(node, nodes)) continue;
       ruleId = "button-name";
       message = "Button has no recognized accessible name. ";
+    } else {
+      if (!node.attrs.some(({ name }) => name === "href") || mayHaveNameFromContent(node)) continue;
+      ruleId = "link-name";
+      message = "Link has no recognized accessible name. ";
     }
     const rule = getRule(ruleId);
     if (!rule) throw new Error(`Missing ${ruleId} rule metadata`);

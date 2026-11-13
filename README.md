@@ -1,7 +1,8 @@
 # OPS AODA Agent
 
 Independent TypeScript source scanner for an accessibility-assistant VS Code
-extension. The scanner implements **`image-text-alternative` and `button-name`**.
+extension. The scanner implements **`image-text-alternative`, `button-name`, and
+`link-name`**.
 The existing six-rule catalog is retained for subsequent detectors.
 
 ## Run and verify
@@ -39,7 +40,7 @@ there is no cached state.
 1. Supported leading directives in `.cshtml` files are masked with spaces.
 2. `parse5` parses the analysis copy with source locations enabled.
 3. Safety gates exclude malformed HTML and unsupported Razor syntax.
-4. Native HTML `<img>` and `<button>` elements are inspected once per rule and source position.
+4. Native HTML images, buttons and hyperlinks are inspected once per rule and source position.
 5. Findings copy metadata from the existing rule catalog via `getRule`.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
@@ -77,6 +78,29 @@ Inline Razor button text such as `@Model.ButtonText` continues to trigger the
 existing whole-file skip; this detector does not expand Razor expression support.
 
 Input buttons and non-native `role="button"` elements are outside this increment.
+
+### Link names
+
+The `link-name` detector checks native `<a>` elements with an `href` attribute,
+including empty `href` and fragment-only destinations. Anchors without `href`
+and custom `role="link"` elements are outside this detector. It reuses the button
+content-naming helper for nested text, non-empty ARIA naming/title attributes,
+child-image alternatives, hidden descendants and conservative uncertainty skips.
+HTML labels are not naming mechanisms for hyperlinks.
+
+A complete simple Razor destination such as `href="@Model.HelpUrl"` is supported:
+its runtime value is unknown, but it supplies no link name. An otherwise empty
+link still receives a finding. Razor-generated link text, method-call URLs and
+Tag Helpers remain subject to the existing skips. Non-empty ARIA references are
+recognized without resolving their targets. Link wording such as "Read more"
+is not judged for purpose or quality; this is a missing-name check only.
+
+Link and image rules remain independent. A named link containing an image without
+an alternative receives an image finding. An unnamed link containing only
+`<img alt="">` receives a link finding. A child image missing `alt` makes the link
+name uncertain because of possible filename fallback; only the image is reported.
+The shared content-naming helper retains the documented button limitations,
+including no CSS or browser accessible-name computation.
 
 Ranges cover the complete opening tag in the **original source**, using zero-based
 lines and UTF-16 characters with an exclusive end. parse5's one-based line/column
@@ -140,11 +164,11 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. No VS Code UI, file scanning, Copilot integration, or fixes
-are implemented. Form, link, language and iframe detectors remain to be built.
+are implemented. Form, language and iframe detectors remain to be built.
 
 ## Next increments
 
 Expand safe Razor coverage as needed, then add the remaining approved detectors one at a
-time: form controls, links, document language, and iframes. Reuse the
+time: form controls, document language, and iframes. Reuse the
 parser and metadata catalog; add focused tests with each detector. Active-editor
 integration remains a separate task.

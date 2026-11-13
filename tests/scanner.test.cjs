@@ -269,3 +269,88 @@ test('multiline button opening tags retain original ranges after Razor masking',
 test('input buttons and non-native ARIA buttons remain outside this detector', () => {
   assert.deepEqual(scan('<input type="submit" value=""><div role="button"></div>'), []);
 });
+
+test('empty hyperlink returns complete link metadata and opening-tag range', () => {
+  const source = '<a href="/help"></a>';
+  const end = source.indexOf('>') + 1;
+  const rule = getRule('link-name');
+  assert.deepEqual(scan(source), [{
+    id: JSON.stringify([uri, rule.id, 0, end]), ruleId: rule.id, title: rule.title,
+    message: 'Link has no recognized accessible name. ' + rule.remediation,
+    fileUri: uri,
+    range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: end },
+    category: rule.category, severity: rule.severity, wcagCriteria: rule.wcagCriteria,
+  }]);
+});
+
+for (const source of [
+  '<a href="/help">Help</a>', '<a href="/help"><span><strong>Help</strong></span></a>',
+  '<a href="/help" aria-label="Help"></a>', '<a href="/help" aria-labelledby="help-label"></a>',
+  '<a href="/help" title="Help"></a>', '<a href="/help"><img alt="Help"></a>',
+  '<a href="/help" aria-label="Help"><img alt=""></a>',
+  '<a href="/help"><span role="presentation">Help</span></a>',
+  '<a href="/help">Read more</a>', '<A HREF="/help">Help</A>',
+  '<a href="@Model.HelpUrl">Help</a>',
+]) {
+  test(`recognizes hyperlink naming: ${source}`, () => assert.deepEqual(scan(source), []));
+}
+
+for (const source of [
+  '<a href="/help"> \n\t </a>', '<a href="/help">&nbsp;</a>',
+  '<a href="/help" aria-label=" " aria-labelledby="" title=""></a>',
+  '<a href="/help"><img alt=""></a>',
+  '<a href="/help"><span hidden>Help</span></a>',
+  '<a href="/help"><span aria-hidden="true">Help</span></a>',
+  '<a href="/help"><!-- Help --><script>Help</script><style>/* Help */</style><template>Help</template></a>',
+  '<a href=""></a>', '<a href="#"></a>', '<a href></a>',
+  '<a href="@Model.HelpUrl"></a>',
+  '<label for="help">Help</label><a id="help" href="/help"></a>',
+  '<label>Help<a href="/help"></a></label>',
+]) {
+  test(`reports unnamed hyperlink: ${source}`, () => {
+    assert.deepEqual(scan(source).map((issue) => issue.ruleId), ['link-name']);
+  });
+}
+
+test('anchors without href and non-native links are outside the hyperlink detector', () => {
+  assert.deepEqual(scan('<a id="help"></a><a></a><div role="link"></div>'), []);
+});
+
+test('hidden, server-generated and ambiguous hyperlinks are skipped conservatively', () => {
+  for (const source of [
+    '<a href="/help" hidden></a>', '<div aria-hidden="true"><a href="/help"></a></div>',
+    '<a href="/help" runat="server"></a>', '<a asp-action="Help"></a>',
+    '<a href="/help" asp-action="Help"></a>',
+    '<a href="/help"><span runat="server"></span></a>',
+    '<a href="/help"><svg></svg></a>', '<a href="/help"><my-icon></my-icon></a>',
+    '<a href="/help" role="button"></a>', '<a href="/help">',
+    '<a href="/help" aria-label="@Model.Name"></a>', '<a href="/help">@Model.LinkText</a>',
+    '<a href="@Url.Action("Help")"></a>',
+  ]) assert.deepEqual(scan(source), [], source);
+});
+
+test('link and image findings remain independent for image-only hyperlinks', () => {
+  assert.deepEqual(scan('<a href="/help" aria-label="Help"><img src="help.png"></a>')
+    .map((issue) => issue.ruleId), ['image-text-alternative']);
+  assert.deepEqual(scan('<a href="/help"><img src="help.png"></a>')
+    .map((issue) => issue.ruleId), ['image-text-alternative']);
+});
+
+test('multiline hyperlink ranges and IDs retain original source positions after masking', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const source = `@model Product${newline}  <a${newline} href="/help"></a>`;
+    const [issue] = scan(source);
+    assert.deepEqual(issue.range, { startLine: 1, startCharacter: 2, endLine: 2, endCharacter: 14 });
+    assert.deepEqual(JSON.parse(issue.id), [uri, 'link-name', source.indexOf('<a'), source.indexOf('>') + 1]);
+  }
+});
+
+test('all three detectors share stable finding generation and source ordering', () => {
+  const source = '<a href="/help"></a><button></button><img><a href="#"></a>';
+  const issues = scan(source);
+  assert.deepEqual(issues.map((issue) => issue.ruleId),
+    ['link-name', 'button-name', 'image-text-alternative', 'link-name']);
+  assert.equal(new Set(issues.map((issue) => issue.id)).size, 4);
+  assert.deepEqual(scan(source), issues);
+  assert.notEqual(scanAccessibility(source, 'file:///other.html')[0].id, issues[0].id);
+});
