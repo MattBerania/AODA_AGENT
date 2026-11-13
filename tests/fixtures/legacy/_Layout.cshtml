@@ -1,0 +1,21 @@
+@using System.Web.Mvc
+@{
+    Layout = null;
+    var siteName = "Legacy Services Portal";
+}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>@ViewBag.Title - @siteName</title>
+  @Styles.Render("~/Content/css")
+</head>
+<body>
+  <header>
+    <img src="/Content/Images/logo.png">
+    <a href="@Url.Action("Index", "Home")"></a>
+  </header>
+  <main>@RenderBody()</main>
+  @Scripts.Render("~/bundles/jquery")
+  @RenderSection("scripts", required: false)
+</body>
+</html>

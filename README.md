@@ -1,7 +1,7 @@
 # OPS AODA Agent
 
-Independent TypeScript source scanner for an accessibility-assistant VS Code
-extension. The scanner implements the six approved rules **`image-text-alternative`,
+VS Code extension with an independent TypeScript source scanner. The scanner
+implements the six approved rules **`image-text-alternative`,
 `button-name`, `link-name`, `document-language`, `iframe-name`, and
 `form-control-name`** within the source-analysis limits below.
 
@@ -15,6 +15,9 @@ npm test
 
 `npm test` compiles TypeScript into the ignored `dist/` directory, then runs
 focused tests using Node's built-in test runner. No test framework is installed.
+Command tests simulate the VS Code API while running the real scanner. They
+cover editor-buffer reads, document URIs, diagnostic ranges and error handling.
+The Extension Development Host is a separate manual check.
 
 `tests/fixtures/` contains synthetic full-page HTML examples and a Razor view.
 The fixture tests exercise all six rules together, check that reported ranges
@@ -24,7 +27,10 @@ clear resolved findings. Production legacy ASP.NET files still need validation.
 After building, try it from the repository root:
 
 ```powershell
-node -e 'const {scanAccessibility} = require("./dist/accessibility/scanner.js"); console.log(scanAccessibility("<img>", "file:///example.html"));'
+@'
+const { scanAccessibility } = require("./dist/accessibility/scanner.js");
+console.log(scanAccessibility("<img>", "file:///example.html"));
+'@ | node
 ```
 
 Or call it from TypeScript:
@@ -39,6 +45,49 @@ The function accepts original source text and a serialized file URI; it performs
 no file I/O and has no VS Code dependency. The caller is responsible for selecting
 supported `.html` and `.cshtml` files. Scan again with updated source when needed;
 there is no cached state.
+
+## Current-page scanning in VS Code
+
+Use VS Code 1.95 or newer. Install dependencies with `npm ci`, then press F5
+using the `Run OPS AODA Agent` launch configuration. The build task compiles the
+extension and opens an Extension Development Host window.
+
+1. In that window, open `tests/fixtures/legacy/contact.cshtml`.
+2. Keep the document active and run **OPS AODA: Scan Current Page** from the
+   Command Palette (`Ctrl+Shift+P`).
+3. Open Problems (`Ctrl+Shift+M`). Expect five findings and click them to inspect
+   the matching opening tags.
+4. Make an unsaved edit and invoke the command to scan the editor's current text.
+   Each invocation displays a snapshot for the requested page.
+5. Open `_Layout.cshtml` or `orders.cshtml` in the same fixture directory. Their
+   unsupported Razor produces zero findings and a message mentioning skipped
+   markup. Expected fixture results are documented in that directory's README.
+
+Results remain a snapshot until another explicit command invocation. There are
+no edit/save event listeners. Files are selected by `.html` or `.cshtml` extension
+(case-insensitive), independently of the editor's language mode. A supported name
+can also be scanned through a remote or untitled document URI. An unnamed
+`Untitled-1` document is rejected until it has a supported filename.
+
+The minimal integration has two files:
+
+- `src/extension.ts` exports `activate()` and passes the VS Code API and context
+  to `registerCurrentPageScanning()`.
+- `src/currentPageScanning.ts` registers `opsAoda.scanCurrentPage`, reads
+  `activeTextEditor.document.getText()` and `uri.toString()`, calls the scanner,
+  and converts each shared issue into a VS Code diagnostic. The handler returns
+  `AccessibilityIssue[]` to command callers. Disposables are registered with the
+  extension context for cleanup. The API parameter lets Node tests exercise the
+  real command handler through a simulated host.
+
+The existing `scanAccessibility()` and shared types remain independent of VS
+Code. The command uses URI paths to identify supported extensions and preserves
+the full serialized URI in findings. Source ranges map directly to `vscode.Range`
+without changing their zero-based coordinates.
+
+The local extension identifier is `ops-aoda-local.ops-aoda-agent`.
+`ops-aoda-local` is a development publisher placeholder. Marketplace publishing
+would require the team's registered publisher identifier.
 
 ## How the detectors work
 
@@ -223,11 +272,12 @@ from source without findings. Consumers must preserve that limitation in their
 wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
-or AODA compliance. No VS Code UI, file scanning, Copilot integration, or fixes
-are implemented. All six approved detectors have focused tests for their
-documented subsets.
+or AODA compliance. The explicit current-page command displays diagnostics in
+Problems. Repository scanning, automatic rescanning, Copilot integration and
+fixes remain separate tasks. All six approved detectors have focused tests for
+their documented subsets.
 
 ## Next increments
 
-Validate production legacy application files and expand safe Razor coverage as
-needed. Active-editor integration remains a separate task.
+Verify the command in the Extension Development Host, validate production legacy
+application files when available, and expand safe Razor coverage as needed.

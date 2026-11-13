@@ -1,12 +1,27 @@
 {
-  "name": "aoda_agent",
+  "name": "ops-aoda-agent",
+  "publisher": "ops-aoda-local",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "displayName": "OPS AODA Agent",
+  "description": "Scan the current HTML or Razor source document for supported accessibility issues.",
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": ["Linters"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "opsAoda.scanCurrentPage",
+        "title": "Scan Current Page",
+        "category": "OPS AODA"
+      }
+    ]
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/scanner.test.cjs"
+    "test": "npm run build && node --test tests/scanner.test.cjs tests/currentPageScanning.test.cjs"
   },
   "repository": {
     "type": "git",
@@ -22,6 +37,7 @@
   "homepage": "https://github.com/MattBerania/AODA_AGENT#readme",
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/vscode": "1.95.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {

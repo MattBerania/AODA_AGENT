@@ -1,0 +1,17 @@
+@model LegacyPortal.Models.ContactViewModel
+@using System.Web.Mvc
+
+<div class="container body-content">
+  <h2>Contact our office</h2>
+  <img src="/Content/Images/office.jpg">
+  <img src="@Model.LogoUrl" alt="@Model.LogoDescription">
+  <form action="/Contact/Submit" method="post">
+    <label for="fullName">Full name</label>
+    <input id="fullName" name="FullName" type="text">
+    <input id="phone" name="Phone" type="tel">
+    <label>Message<textarea name="Message"></textarea></label>
+    <button type="submit"><span class="glyphicon glyphicon-send" aria-hidden="true"></span></button>
+  </form>
+  <a href="/Contact/Directions"><img src="/Content/Images/map-pin.png" alt=""></a>
+  <iframe src="/Contact/Map"></iframe>
+</div>

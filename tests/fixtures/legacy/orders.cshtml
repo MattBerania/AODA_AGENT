@@ -1,0 +1,27 @@
+@model IEnumerable<LegacyPortal.Models.OrderViewModel>
+@using System.Web.Mvc
+
+@* This view uses legacy MVC helpers and conditional server-rendered content. *@
+@using (Html.BeginForm("Search", "Orders", FormMethod.Get))
+{
+    @Html.TextBox("query")
+    <button type="submit"></button>
+}
+
+<table class="table">
+  <thead><tr><th>Order</th><th>Actions</th></tr></thead>
+  <tbody>
+    @foreach (var order in Model)
+    {
+      <tr>
+        <td>@Html.DisplayFor(m => order.Reference)</td>
+        <td>
+          @if (order.CanEdit)
+          {
+            <a href="@Url.Action("Edit", new { id = order.Id })"><img src="/Content/Images/edit.png" alt=""></a>
+          }
+        </td>
+      </tr>
+    }
+  </tbody>
+</table>
