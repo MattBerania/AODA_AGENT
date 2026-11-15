@@ -18,6 +18,11 @@
         "category": "OPS AODA"
       },
       {
+        "command": "opsAoda.scanRepository",
+        "title": "Scan Repository",
+        "category": "OPS AODA"
+      },
+      {
         "command": "opsAoda.showScanIssues",
         "title": "Show Scan Issues",
         "category": "OPS AODA"
@@ -32,7 +37,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/scanner.test.cjs tests/currentPageScanning.test.cjs"
+    "test": "npm run build && node --test tests/scanner.test.cjs tests/currentPageScanning.test.cjs tests/repositoryScanning.test.cjs tests/scanResults.test.cjs"
   },
   "repository": {
     "type": "git",

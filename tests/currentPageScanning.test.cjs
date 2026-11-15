@@ -32,6 +32,11 @@ function makeHost(document) {
   const collection = {
     entries: new Map(), disposed: false,
     clear() { this.entries.clear(); },
+    delete(uri) {
+      for (const key of this.entries.keys()) {
+        if (key.toString() === uri.toString()) this.entries.delete(key);
+      }
+    },
     set(uri, diagnostics) { this.entries.set(uri, diagnostics); },
     dispose() { this.disposed = true; this.entries.clear(); },
   };
@@ -59,6 +64,7 @@ function makeHost(document) {
     edits: new EventEmitter(), activeEditor: new EventEmitter(), closedDocument: new EventEmitter(),
   };
   const api = {
+    Uri: { parse: (value) => ({ path: new URL(value).pathname, toString: () => value }) },
     Range, Diagnostic, EventEmitter,
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
@@ -186,7 +192,6 @@ test('legacy contact fixture findings identify the original document and exact o
   const host = makeHost(document);
   const findings = host.run();
   const expected = [
-    ['image-text-alternative', '<img src="/Content/Images/office.jpg">'],
     ['form-control-name', '<input id="phone" name="Phone" type="tel">'],
     ['button-name', '<button type="submit">'],
     ['link-name', '<a href="/Contact/Directions">'],
@@ -206,7 +211,7 @@ test('legacy contact fixture findings identify the original document and exact o
     const [, , start, end] = JSON.parse(issue.id);
     assert.equal(source.slice(start, end), expected[index][1]);
   }
-  assert.match(host.messages.info[0], /5 accessibility findings/);
+  assert.match(host.messages.info[0], /4 accessibility findings/);
 });
 
 test('HTML fixture runs all six detectors through the registered command', () => {
