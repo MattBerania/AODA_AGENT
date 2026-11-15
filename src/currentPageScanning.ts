@@ -1,9 +1,9 @@
 import { extname } from "node:path";
 import type * as VSCode from "vscode";
 import { scanAccessibility } from "./accessibility/scanner";
-import { getRule } from "./accessibility/rules";
-import type { AccessibilityIssue, IssueSeverity } from "./types/accessibility";
-import type { IssueContext, ScannerIntegration, ScanSnapshot } from "./types/scannerIntegration";
+import { createScanResults, type ScanResults } from "./scanResults";
+import type { AccessibilityIssue } from "./types/accessibility";
+import type { ScannerIntegration, ScanSnapshot } from "./types/scannerIntegration";
 
 export const SCAN_CURRENT_PAGE_COMMAND = "opsAoda.scanCurrentPage";
 export const SCAN_DEBOUNCE_MS = 400;
@@ -17,57 +17,22 @@ function isSupportedDocument(document: VSCode.TextDocument | undefined): documen
 export function registerCurrentPageScanning(
   api: typeof VSCode,
   context: Pick<VSCode.ExtensionContext, "subscriptions">,
+  workspaceResults?: ScanResults,
 ): ScannerIntegration {
-  const diagnostics = api.languages.createDiagnosticCollection("ops-aoda");
+  const results = workspaceResults ?? createScanResults(api);
+  if (!workspaceResults) context.subscriptions.push(results);
   const changes = new api.EventEmitter<ScanSnapshot | undefined>();
   let latestScan: ScanSnapshot | undefined;
-  const issueContexts = new Map<string, IssueContext>();
   let pendingScan: ReturnType<typeof setTimeout> | undefined;
   let scheduledDocument: VSCode.TextDocument | undefined;
   let disposed = false;
-  const severities: Record<IssueSeverity, VSCode.DiagnosticSeverity> = {
-    error: api.DiagnosticSeverity.Error,
-    warning: api.DiagnosticSeverity.Warning,
-    info: api.DiagnosticSeverity.Information,
-  };
-
   function scanDocument(document: VSCode.TextDocument, notify: boolean): AccessibilityIssue[] {
     if (disposed) return [];
-    diagnostics.clear();
+    if (!workspaceResults) results.clear();
     latestScan = undefined;
-    issueContexts.clear();
     try {
       const issues = scanAccessibility(document.getText(), document.uri.toString());
-      // Copy and freeze the shared snapshot so consumers cannot alter each
-      // other's results or mutate catalog arrays through their findings.
-      const snapshot: ScanSnapshot = Object.freeze({
-        fileUri: document.uri.toString(),
-        documentVersion: document.version,
-        issues: Object.freeze(issues.map((issue) => Object.freeze({
-          ...issue,
-          range: Object.freeze({ ...issue.range }),
-          wcagCriteria: Object.freeze([...issue.wcagCriteria]),
-        }))),
-      });
-      const entries = snapshot.issues.map((issue) => {
-        const range = new api.Range(
-          issue.range.startLine, issue.range.startCharacter,
-          issue.range.endLine, issue.range.endCharacter,
-        );
-        const diagnostic = new api.Diagnostic(range, issue.message, severities[issue.severity]);
-        diagnostic.source = "OPS AODA";
-        diagnostic.code = issue.ruleId;
-        const rule = getRule(issue.ruleId);
-        if (!rule) throw new Error(`Missing ${issue.ruleId} rule metadata`);
-        issueContexts.set(issue.id, Object.freeze({
-          issue,
-          rule: Object.freeze({ ...rule, wcagCriteria: Object.freeze([...rule.wcagCriteria]) }),
-          originalText: document.getText(range),
-          documentVersion: snapshot.documentVersion,
-        }));
-        return diagnostic;
-      });
-      diagnostics.set(document.uri, entries);
+      const snapshot = results.set(document, issues);
       latestScan = snapshot;
       changes.fire(snapshot);
       if (notify) {
@@ -78,9 +43,9 @@ export function registerCurrentPageScanning(
       }
       return issues;
     } catch (error) {
-      diagnostics.clear();
+      if (workspaceResults) results.remove(document.uri.toString());
+      else results.clear();
       latestScan = undefined;
-      issueContexts.clear();
       changes.fire(undefined);
       const detail = error instanceof Error ? error.message : "Unexpected scanner error.";
       void api.window.showErrorMessage(`OPS AODA could not scan the current page: ${detail}`);
@@ -95,10 +60,9 @@ export function registerCurrentPageScanning(
   }
 
   function invalidateResults(): void {
-    diagnostics.clear();
+    if (!workspaceResults) results.clear();
     const hadSnapshot = latestScan !== undefined;
     latestScan = undefined;
-    issueContexts.clear();
     if (hadSnapshot) changes.fire(undefined);
   }
 
@@ -132,6 +96,7 @@ export function registerCurrentPageScanning(
   const edits = api.workspace.onDidChangeTextDocument((event) => {
     if (event.contentChanges.length === 0 || event.document !== api.window.activeTextEditor?.document ||
       !isSupportedDocument(event.document)) return;
+    if (workspaceResults) results.remove(event.document.uri.toString());
     invalidateResults();
     scheduleScan(event.document);
   });
@@ -148,12 +113,11 @@ export function registerCurrentPageScanning(
     if (latestScan?.fileUri === document.uri.toString()) invalidateResults();
   });
 
-  context.subscriptions.push(diagnostics, command, edits, activeEditor, closedDocuments, {
+  context.subscriptions.push(command, edits, activeEditor, closedDocuments, {
     dispose() {
       disposed = true;
       cancelPendingScan();
       latestScan = undefined;
-      issueContexts.clear();
       changes.dispose();
     },
   });
@@ -161,7 +125,7 @@ export function registerCurrentPageScanning(
   return {
     onDidChangeScan: changes.event,
     getLatestScan: () => latestScan,
-    getIssueContext: (issueId) => issueContexts.get(issueId),
+    getIssueContext: (issueId) => results.getIssueContext(issueId),
     refreshCurrentPage() {
       cancelPendingScan();
       const document = api.window.activeTextEditor?.document;
