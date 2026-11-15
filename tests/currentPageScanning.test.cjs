@@ -769,3 +769,37 @@ test('editing clears displayed details while waiting for updated findings', asyn
   assert.equal(host.output.text, '');
   assert.equal(host.integration.getLatestScan(), undefined);
 });
+
+for (const [name, status, count, reason] of [
+  ['missing-accessible-names.cshtml', 'analyzed', 6],
+  ['recognized-accessible-names.cshtml', 'analyzed', 0],
+  ['unsupported-conditional.cshtml', 'skipped', 0, /Unsupported Razor/],
+  ['malformed-markup.cshtml', 'skipped', 0, /Malformed HTML/],
+  ['literal-email.cshtml', 'skipped', 0, /literal @/],
+]) {
+  test('legacy outcome regression fixture: ' + name, () => {
+    const fixture = join(__dirname, 'fixtures', 'legacy', name);
+    const document = makeDocument(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href);
+    const host = makeHost(document);
+    try {
+      const findings = host.run();
+      const snapshot = host.integration.getLatestScan();
+      assert.equal(snapshot.status, status);
+      assert.equal(findings.length, count);
+      assert.equal(host.collection.entries.get(document.uri).length, count);
+      if (reason) {
+        assert.match(snapshot.reason, reason);
+        assert.match(host.messages.info[0], /skipped this page/);
+      } else if (count === 0) {
+        assert.match(host.messages.info[0], /Analyzed with no confirmed findings/);
+      } else {
+        assert.deepEqual(new Set(findings.map(issue => issue.ruleId)), new Set([
+          'document-language', 'image-text-alternative', 'form-control-name',
+          'button-name', 'link-name', 'iframe-name',
+        ]));
+      }
+    } finally {
+      for (const subscription of host.context.subscriptions) subscription.dispose();
+    }
+  });
+}
