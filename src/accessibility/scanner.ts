@@ -1,5 +1,5 @@
 import { parse, type DefaultTreeAdapterMap } from "parse5";
-import type { AccessibilityIssue } from "../types/accessibility";
+import type { AccessibilityIssue, ScanOutcome } from "../types/accessibility";
 import { getRule } from "./rules";
 import { maskRazorDirectives } from "./razor";
 
@@ -172,7 +172,7 @@ function formControlMayHaveName(control: Element, nodes: Element[], labels: Elem
  * Empty results mean no confirmed finding in the supported subset, not compliance.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
-export function scanAccessibility(source: string, fileUri: string): AccessibilityIssue[] {
+function analyzeSource(source: string, fileUri: string): ScanOutcome {
   // Mask only Razor files. The copy has the original length and line endings,
   // so parser locations and occurrence IDs still refer to the original source.
   const analysisSource = /\.cshtml(?:[?#]|$)/i.test(fileUri)
@@ -186,7 +186,8 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
     },
   });
   const nodes = elements(document);
-  if (malformed || hasUnsupportedRazor(analysisSource, nodes)) return [];
+  if (malformed) return { status: "skipped", issues: [], reason: "Malformed HTML prevents reliable analysis." };
+  if (hasUnsupportedRazor(analysisSource, nodes)) return { status: "skipped", issues: [], reason: "Unsupported Razor syntax or literal @ prevents reliable analysis." };
   const labels = nodes.filter((node) => node.tagName === "label");
 
   const issues: AccessibilityIssue[] = [];
@@ -255,6 +256,21 @@ export function scanAccessibility(source: string, fileUri: string): Accessibilit
     });
   }
   // Stack traversal and HTML tree correction need not preserve source order.
-  return issues.sort((a, b) => a.range.startLine - b.range.startLine ||
-    a.range.startCharacter - b.range.startCharacter);
+  return { status: "analyzed", issues: issues.sort((a, b) => a.range.startLine - b.range.startLine ||
+    a.range.startCharacter - b.range.startCharacter) };
+}
+
+export function scanAccessibilityOutcome(source: string, fileUri: string): ScanOutcome {
+  try {
+    return analyzeSource(source, fileUri);
+  } catch (error) {
+    return { status: "failed", issues: [], reason: error instanceof Error ? error.message : "Unexpected scanner error." };
+  }
+}
+
+/** Compatibility API for existing findings consumers. */
+export function scanAccessibility(source: string, fileUri: string): AccessibilityIssue[] {
+  const outcome = scanAccessibilityOutcome(source, fileUri);
+  if (outcome.status === "failed") throw new Error(outcome.reason);
+  return [...outcome.issues];
 }

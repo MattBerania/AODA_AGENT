@@ -673,3 +673,24 @@ test('scanning changed source clears resolved findings without retaining previou
   assert.deepEqual(scanAccessibility(updated, fileUri), []);
   assert.deepEqual(scanAccessibility(source, fileUri), before);
 });
+
+const { scanAccessibilityOutcome } = require('../dist/accessibility/scanner.js');
+test('structured outcomes distinguish findings, clean analysis, and deliberate skips', () => {
+  assert.equal(scanAccessibilityOutcome('<img>', uri).issues.length, 1);
+  assert.deepEqual(scanAccessibilityOutcome('<img alt="">', uri), { status: 'analyzed', issues: [] });
+  for (const source of ['<img', '@if (true) { <img> }']) {
+    const result = scanAccessibilityOutcome(source, uri);
+    assert.equal(result.status, 'skipped');
+    assert.ok(result.reason.length > 0);
+    assert.deepEqual(result.issues, []);
+  }
+});
+test('unexpected detector errors produce failed outcomes and legacy API throws', () => {
+  const rules = require('../dist/accessibility/rules.js');
+  const original = rules.getRule;
+  rules.getRule = () => { throw new Error('metadata unavailable'); };
+  try {
+    assert.deepEqual(scanAccessibilityOutcome('<img>', uri), { status: 'failed', issues: [], reason: 'metadata unavailable' });
+    assert.throws(() => scanAccessibility('<img>', uri), /metadata unavailable/);
+  } finally { rules.getRule = original; }
+});

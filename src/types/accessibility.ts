@@ -58,3 +58,8 @@ export interface ProposedFix {
   readonly documentVersion: number;
   readonly explanation: string;
 }
+
+/** Result of attempting the implemented static checks on one file. */
+export type ScanOutcome =
+  | { readonly status: "analyzed"; readonly issues: readonly AccessibilityIssue[] }
+  | { readonly status: "skipped" | "failed"; readonly issues: readonly []; readonly reason: string };

@@ -1,6 +1,6 @@
 import { extname } from "node:path";
 import type * as VSCode from "vscode";
-import { scanAccessibility } from "./accessibility/scanner";
+import { scanAccessibilityOutcome } from "./accessibility/scanner";
 import { createScanResults, type ScanResults } from "./scanResults";
 import type { AccessibilityIssue } from "./types/accessibility";
 import type { ScannerIntegration, ScanSnapshot } from "./types/scannerIntegration";
@@ -26,30 +26,37 @@ export function registerCurrentPageScanning(
   let pendingScan: ReturnType<typeof setTimeout> | undefined;
   let scheduledDocument: VSCode.TextDocument | undefined;
   let disposed = false;
+  let scanningCurrentPage = false;
   function scanDocument(document: VSCode.TextDocument, notify: boolean): AccessibilityIssue[] {
     if (disposed) return [];
     if (!workspaceResults) results.clear();
     latestScan = undefined;
+    scanningCurrentPage = true;
     try {
-      const issues = scanAccessibility(document.getText(), document.uri.toString());
-      const snapshot = results.set(document, issues);
+      const outcome = scanAccessibilityOutcome(document.getText(), document.uri.toString());
+      if (outcome.status === "failed") throw new Error(outcome.reason);
+      const issues = [...outcome.issues];
+      const snapshot = results.set(document, outcome);
       latestScan = snapshot;
       changes.fire(snapshot);
       if (notify) {
-        const message = issues.length === 0
-          ? "No confirmed findings in supported markup. Unsupported Razor or malformed HTML may have been skipped."
+        const message = outcome.status === "skipped"
+          ? `OPS AODA skipped this page. ${outcome.reason}`
+          : issues.length === 0
+          ? "Analyzed with no confirmed findings from the six implemented checks."
           : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See Problems for details.`;
         void api.window.showInformationMessage(message);
       }
       return issues;
     } catch (error) {
-      if (workspaceResults) results.remove(document.uri.toString());
-      else results.clear();
-      latestScan = undefined;
-      changes.fire(undefined);
       const detail = error instanceof Error ? error.message : "Unexpected scanner error.";
+      results.remove(document.uri.toString());
+      latestScan = results.set(document, { status: "failed", issues: [], reason: detail });
+      changes.fire(latestScan);
       void api.window.showErrorMessage(`OPS AODA could not scan the current page: ${detail}`);
       return [];
+    } finally {
+      scanningCurrentPage = false;
     }
   }
 
@@ -92,6 +99,15 @@ export function registerCurrentPageScanning(
     }
     return scanDocument(document, true);
   });
+
+  context.subscriptions.push(results.onDidChange((fileUri) => {
+    if (scanningCurrentPage || !workspaceResults || (latestScan?.fileUri !== fileUri &&
+      api.window.activeTextEditor?.document.uri.toString() !== fileUri)) return;
+    const snapshot = results.getSnapshot(fileUri);
+    if (snapshot === latestScan) return;
+    latestScan = snapshot;
+    changes.fire(snapshot);
+  }));
 
   const edits = api.workspace.onDidChangeTextDocument((event) => {
     if (event.contentChanges.length === 0 || event.document !== api.window.activeTextEditor?.document ||

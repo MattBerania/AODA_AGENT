@@ -58,8 +58,12 @@ export function registerIssuePresentation(
       void api.window.showInformationMessage("Run OPS AODA: Scan Current Page to populate the issue list.");
       return;
     }
+    if (snapshot.status !== "analyzed") {
+      void api.window.showWarningMessage(`The latest scan ${snapshot.status}. ${snapshot.reason}`);
+      return;
+    }
     if (snapshot.issues.length === 0) {
-      void api.window.showInformationMessage("The latest scan has no confirmed findings. Unsupported markup may have been skipped.");
+      void api.window.showInformationMessage("The page was analyzed with no confirmed findings from the six implemented checks.");
       return;
     }
     try {

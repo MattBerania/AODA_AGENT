@@ -16,6 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const message = event.data; 
         if (message.type === 'SCAN_RESULTS') {
             populateSidebar(message.payload);
+            if (message.status && message.status !== 'analyzed') {
+                sidebarContent.textContent = message.status === 'pending'
+                    ? 'Waiting for scan results.'
+                    : 'Scan ' + message.status + '. ' + (message.reason || '');
+            }
         }
     });
 
@@ -25,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const categories = {};
         
         if (!liveScanResults || liveScanResults.length === 0) {
-            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success);">No accessibility findings detected on this page.</p>';
+            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success);">Analyzed with no confirmed findings from the six implemented checks.</p>';
             return;
         }
 

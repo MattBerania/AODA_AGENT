@@ -229,7 +229,7 @@ for (const name of ['_Layout.cshtml', 'orders.cshtml']) {
     const fixture = join(__dirname, 'fixtures', 'legacy', name);
     const host = makeHost(makeDocument(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href));
     assert.deepEqual(host.run(), []);
-    assert.match(host.messages.info[0], /Unsupported Razor or malformed HTML may have been skipped/);
+    assert.match(host.messages.info[0], /skipped this page/);
     assert.equal(host.messages.error.length, 0);
   });
 }
@@ -239,7 +239,7 @@ test('a supported page with no findings publishes an empty diagnostic list', () 
   const host = makeHost(document);
   assert.deepEqual(host.run(), []);
   assert.deepEqual(host.collection.entries.get(document.uri), []);
-  assert.match(host.messages.info[0], /No confirmed findings/);
+  assert.match(host.messages.info[0], /no confirmed findings/i);
 });
 
 test('each explicit invocation uses the currently active page and replaces the displayed snapshot', () => {
@@ -261,12 +261,13 @@ test('unexpected read failures are reported and clear the previous snapshot', ()
   document.getText = () => { throw new Error('Test read failure'); };
   assert.deepEqual(host.run(), []);
   assert.match(host.messages.error[0], /could not scan.*Test read failure/);
-  assert.equal(host.collection.entries.size, 0);
+  assert.equal(host.integration.getLatestScan().status, 'failed');
+  assert.deepEqual(host.collection.entries.get(document.uri), []);
 });
 
 test('command and diagnostics are registered for disposal with the extension', () => {
   const host = makeHost();
-  assert.equal(host.context.subscriptions.length, 6);
+  assert.equal(host.context.subscriptions.length, 7);
   for (const disposable of host.context.subscriptions) disposable.dispose();
   assert.equal(host.collection.disposed, true);
   assert.equal(host.commands.size, 0);
@@ -357,10 +358,11 @@ test('failed scans clear shared results and notify consumers without partial con
     return getText(range);
   };
   assert.deepEqual(host.run(), []);
-  assert.deepEqual(events, [undefined]);
-  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.deepEqual(events, [host.integration.getLatestScan()]);
+  assert.equal(events[0].status, 'failed');
+  assert.match(events[0].reason, /Failed to capture/);
   assert.equal(host.integration.getIssueContext(previous.id), undefined);
-  assert.equal(host.collection.entries.size, 0);
+  assert.deepEqual(host.collection.entries.get(document.uri), []);
 });
 
 test('empty successful scans publish their URI and version and replace previous findings', () => {
@@ -371,7 +373,7 @@ test('empty successful scans publish their URI and version and replace previous 
   host.api.window.activeTextEditor = { document };
   host.run();
   assert.deepEqual(host.integration.getLatestScan(), {
-    fileUri: document.uri.toString(), documentVersion: 2, issues: [],
+    fileUri: document.uri.toString(), documentVersion: 2, issues: [], status: 'analyzed',
   });
   assert.equal(host.integration.getIssueContext(previous.id), undefined);
 });
@@ -728,7 +730,7 @@ test('automatic scan failures are caught once without retrying on a loop', (t) =
   document.getText = () => { throw new Error('Read failed'); };
   t.mock.timers.tick(SCAN_DEBOUNCE_MS);
   assert.equal(host.messages.error.length, 1);
-  assert.equal(host.integration.getLatestScan(), undefined);
+  assert.equal(host.integration.getLatestScan().status, 'failed');
   t.mock.timers.tick(5000);
   assert.equal(host.messages.error.length, 1);
 });

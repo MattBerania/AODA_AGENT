@@ -192,7 +192,7 @@ test('active-file edits and failed current scans preserve other repository findi
     assert.equal(host.diagnostics.get(second.uri.toString()).length, 1);
     first.getText = () => { throw new Error('Cannot read buffer'); };
     host.current(first);
-    assert.equal(host.results.getSnapshot(first.uri.toString()), undefined);
+    assert.equal(host.results.getSnapshot(first.uri.toString()).status, 'failed');
     assert.ok(host.results.getSnapshot(second.uri.toString()));
     assert.match(host.messages.error[0], /Cannot read buffer/);
   } finally { host.dispose(); }
@@ -217,5 +217,103 @@ test('real HTML fixtures publish all six rules while a named fixture remains emp
       assert.equal(details.rule.id, issue.ruleId);
       assert.match(details.originalText, /^</);
     }
+  } finally { host.dispose(); }
+});
+
+test('outcome transitions clear stale contexts and preserve unrelated files', async () => {
+  const host = makeHost();
+  try {
+    const first = host.add('file:///demo/first.cshtml', '<img>');
+    const second = host.add('file:///demo/second.html', '<button></button>');
+    await host.repository();
+    host.current(first);
+    const oldId = host.scanner.getLatestScan().issues[0].id;
+    const other = host.results.getSnapshot(second.uri.toString());
+    first.source = '@if (true) { <img> }'; first.version++;
+    await host.repository();
+    assert.equal(host.results.getSnapshot(first.uri.toString()).status, 'skipped');
+    assert.equal(host.scanner.getLatestScan().status, 'skipped');
+    assert.equal(host.scanner.getIssueContext(oldId), undefined);
+    assert.deepEqual(host.diagnostics.get(first.uri.toString()), []);
+    first.source = '<img>'; first.version++;
+    host.current(first);
+    assert.equal(host.scanner.getLatestScan().status, 'analyzed');
+    assert.equal(host.scanner.getLatestScan().issues.length, 1);
+    const read = first.getText;
+    first.getText = () => { throw new Error('buffer unavailable'); };
+    host.current(first);
+    assert.equal(host.scanner.getLatestScan().status, 'failed');
+    first.getText = read; first.source = '<img alt="">'; first.version++;
+    host.current(first);
+    assert.equal(host.scanner.getLatestScan().status, 'analyzed');
+    assert.deepEqual(host.scanner.getLatestScan().issues, []);
+    assert.deepEqual(host.results.getSnapshot(second.uri.toString()), other);
+  } finally { host.dispose(); }
+});
+test('a delayed repository failure preserves a newer current-file result', async () => {
+  const host = makeHost();
+  try {
+    const document = host.add('file:///demo/first.html', '<img>');
+    let rejectOpen;
+    let opened;
+    const started = new Promise(resolve => { opened = resolve; });
+    host.api.workspace.openTextDocument = () => new Promise((resolve, reject) => { rejectOpen = reject; opened(); });
+    const pending = host.repository();
+    await started;
+    host.current(document);
+    const newer = host.results.getSnapshot(document.uri.toString());
+    rejectOpen(new Error('old open failed'));
+    await pending;
+    assert.equal(host.results.getSnapshot(document.uri.toString()), newer);
+    assert.equal(host.scanner.getLatestScan(), newer);
+  } finally { host.dispose(); }
+});
+
+test('an older successful repository open cannot overwrite a newer scan', async () => {
+  const host = makeHost();
+  try {
+    const document = host.add('file:///demo/first.html', '<img>');
+    let resolveOpen;
+    let opened;
+    const started = new Promise(resolve => { opened = resolve; });
+    host.api.workspace.openTextDocument = () => new Promise(resolve => { resolveOpen = resolve; opened(); });
+    const pending = host.repository();
+    await started;
+    document.source = '<img alt="Logo">'; document.version++;
+    host.current(document);
+    const newer = host.results.getSnapshot(document.uri.toString());
+    resolveOpen(makeDocument(document.uri.toString(), '<img>'));
+    await pending;
+    assert.equal(host.results.getSnapshot(document.uri.toString()), newer);
+    assert.deepEqual(newer.issues, []);
+    assert.match(host.messages.warning[0], /Superseded/);
+  } finally { host.dispose(); }
+});
+test('deleting a file during an asynchronous open prevents publication', async () => {
+  const host = makeHost();
+  try {
+    const document = host.add('file:///demo/first.html', '<img>');
+    let resolveOpen;
+    let opened;
+    const started = new Promise(resolve => { opened = resolve; });
+    host.api.workspace.openTextDocument = () => new Promise(resolve => { resolveOpen = resolve; opened(); });
+    const pending = host.repository();
+    await started;
+    host.events.deleted.fire({ files: [document.uri] });
+    resolveOpen(document);
+    await pending;
+    assert.equal(host.results.getSnapshot(document.uri.toString()), undefined);
+    assert.equal(host.diagnostics.size, 0);
+  } finally { host.dispose(); }
+});
+
+test('shared current-file publication emits one completed event', () => {
+  const host = makeHost();
+  try {
+    const document = host.add('file:///demo/first.html', '<img>');
+    const events = [];
+    host.scanner.onDidChangeScan(snapshot => events.push(snapshot));
+    host.current(document);
+    assert.deepEqual(events, [host.scanner.getLatestScan()]);
   } finally { host.dispose(); }
 });

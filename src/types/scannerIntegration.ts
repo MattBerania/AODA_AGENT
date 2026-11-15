@@ -1,11 +1,10 @@
 import type { Event } from "vscode";
-import type { AccessibilityIssue, AccessibilityRule } from "./accessibility";
+import type { AccessibilityIssue, AccessibilityRule, ScanOutcome } from "./accessibility";
 
 /** The latest scan, tied to the editor buffer version it analyzed. */
-export interface ScanSnapshot {
+export type ScanSnapshot = ScanOutcome & {
   readonly fileUri: string;
   readonly documentVersion: number;
-  readonly issues: readonly AccessibilityIssue[];
 }
 
 /** Source and metadata that presentation or proposed-fix consumers can read. */

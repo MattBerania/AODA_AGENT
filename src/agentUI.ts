@@ -21,7 +21,7 @@ export function registerAgentUI(
         // If focus is in the Webview (activeTextEditor is undefined), freeze the current errors on screen.
         if (!snapshot) {
             if (api.window.activeTextEditor) {
-                panel.webview.postMessage({ type: "SCAN_RESULTS", payload: [] });
+                panel.webview.postMessage({ type: "SCAN_RESULTS", payload: [], status: "pending" });
             }
             return;
         }
@@ -34,7 +34,7 @@ export function registerAgentUI(
                 rule: issueCtx?.rule,
             };
         });
-        panel.webview.postMessage({ type: "SCAN_RESULTS", payload });
+        panel.webview.postMessage({ type: "SCAN_RESULTS", payload, status: snapshot.status, reason: snapshot.status === "analyzed" ? undefined : snapshot.reason });
     }
     const command = api.commands.registerCommand(OPEN_AGENT_UI_COMMAND, () => {
         if (panel) {

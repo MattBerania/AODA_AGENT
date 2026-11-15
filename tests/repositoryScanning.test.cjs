@@ -150,5 +150,21 @@ test('unsupported Razor is processed without claiming a clean result', async () 
   }) });
   await host.run();
   assert.match(host.messages.info[0], /1 processed, 0 confirmed findings, 0 failed/);
-  assert.match(host.messages.info[0], /may have been skipped/);
+  assert.match(host.messages.info[0], /analyzed 0, skipped 1/);
+});
+
+test('mixed outcomes report exact coverage totals and reasons', async () => {
+  const files = ['issue.html', 'clean.html', 'skip.cshtml', 'failed.html'].map(name => makeUri('file:///demo/' + name));
+  const host = makeHost({ discover: async () => files, open: async uri => {
+    if (uri === files[3]) throw new Error('Permission denied');
+    return { uri, version: 1, getText: () => uri === files[0] ? '<img>' : uri === files[1] ? '<img alt="">' : '@if (true) { <img> }' };
+  } });
+  const result = await scanRepositoryFiles(host.api, files);
+  assert.deepEqual(result.outcomes.map(entry => entry.status), ['analyzed', 'analyzed', 'skipped', 'failed']);
+  assert.equal(result.outcomes.reduce((sum, entry) => sum + entry.issues.length, 0), 1);
+  await host.run();
+  assert.match(host.messages.info[0], /Files attempted 4, analyzed 2, skipped 1/);
+  assert.match(host.messages.info[0], /1 failed/);
+  assert.match(host.messages.warning[0], /skip.cshtml/);
+  assert.match(host.messages.warning[0], /Permission denied/);
 });
