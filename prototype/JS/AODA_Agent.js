@@ -1,15 +1,29 @@
 document.addEventListener('DOMContentLoaded', () => {
     let currentActiveError = null;
-
-    // View Elements
+    //VSCODE API FOR GITHUB COPILOT
+    const vscode = acquireVsCodeApi();
+    //VSCODE VIEWS
     const errorListView = document.getElementById('error-list-view');
     const detailChatView = document.getElementById('detail-chat-view');
     const sidebarContent = document.getElementById('sidebar-content');
     const detailContainer = document.querySelector('.detail-container');
     
-    // Buttons
+    //BUTTONS 
     const backBtn = document.getElementById('backBtn');
     const maximizeChatBtn = document.getElementById('maximizeChatBtn');
+    const scanPageBtn = document.getElementById('scanPageBtn');
+    const showIssuesBtn = document.getElementById('showIssuesBtn');
+
+    scanPageBtn.addEventListener('click', () => {
+        sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning current page...</em></p>';
+        vscode.postMessage({ command: 'scanCurrentPage' });
+    });
+
+    showIssuesBtn.addEventListener('click', () => {
+        detailChatView.classList.remove('active');
+        errorListView.classList.add('active');
+        vscode.postMessage({ command: 'showScanIssues' });
+    });
     
     // 1. LISTEN FOR LIVE VS CODE DATA
     window.addEventListener('message', event => {
@@ -20,6 +34,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 sidebarContent.textContent = message.status === 'pending'
                     ? 'Waiting for scan results.'
                     : 'Scan ' + message.status + '. ' + (message.reason || '');
+            }
+        } 
+        else if (message.type === 'CHAT_RESPONSE') {
+            const typingIndicator = document.getElementById(message.typingId);
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+            appendMessage(formatBotMessage(message.payload), false);
+        }
+        else if (message.type === 'FIX_RESPONSE') {
+            if (!currentActiveError || currentActiveError.issue.id !== message.issueId) {
+                return;
+            }
+            const finalFix = message.payload 
+                ? message.payload 
+                : generateDynamicFix(currentActiveError.issue.ruleId, currentActiveError.originalText);
+            
+            renderSuggestedFix(finalFix);
+        }
+        else if (message.type === 'SELECT_ISSUE') {
+            if (message.payload) {
+                loadErrorDetails(message.payload);
             }
         }
     });
@@ -45,28 +81,58 @@ document.addEventListener('DOMContentLoaded', () => {
             const details = document.createElement('details');
             details.className = 'aoda-accordion';
             details.open = true;
-
             const summary = document.createElement('summary');
             summary.textContent = category;
             details.appendChild(summary);
-
             const ul = document.createElement('ul');
             ul.className = 'error-list';
-
-            contexts.forEach(context => {
+            const issuesByTitle = {};
+            contexts.forEach(ctx => {
+                const title = ctx.issue.title;
+                if (!issuesByTitle[title]) issuesByTitle[title] = [];
+                issuesByTitle[title].push(ctx);
+            });
+            for (const [title, titleContexts] of Object.entries(issuesByTitle)) {
                 const li = document.createElement('li');
                 li.className = 'error-item';
-                li.textContent = context.issue.title;
-                li.addEventListener('click', () => loadErrorDetails(context));
+                const titleHeader = document.createElement('div');
+                titleHeader.className = 'error-title-header';
+                
+                const titleLabel = document.createElement('span');
+                titleLabel.className = 'error-title-label';
+                titleLabel.textContent = title;
+                
+                const badge = document.createElement('span');
+                badge.className = 'error-badge';
+                badge.textContent = titleContexts.length;
+                
+                titleHeader.appendChild(titleLabel);
+                titleHeader.appendChild(badge);
+                li.appendChild(titleHeader);
+
+                titleContexts.forEach(context => {
+                    const codeSnippet = document.createElement('span');
+                    codeSnippet.className = 'error-code-link';
+                    
+                    const cleanCode = context.originalText.trim().replace(/\s+/g, ' ');
+                    const words = cleanCode.split(' ');
+                    codeSnippet.textContent = words.length > 7 
+                        ? words.slice(0, 7).join(' ') + '...' 
+                        : cleanCode;
+
+                    codeSnippet.addEventListener('click', () => loadErrorDetails(context));
+                    li.appendChild(codeSnippet);
+                });
+                
                 ul.appendChild(li);
-            });
+            }
 
             details.appendChild(ul);
             sidebarContent.appendChild(details);
         }
     }
 
-    // 3. CODE SUGGESTION ENGINE
+    // 3. FALLBACK CODE SUGGESTION ENGINE
     function generateDynamicFix(ruleId, originalText) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(originalText, 'text/html');
@@ -100,14 +166,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function loadErrorDetails(context) {
         currentActiveError = context;
         
-        // Switch Views
         errorListView.classList.remove('active');
         detailChatView.classList.add('active');
         detailContainer.classList.remove('chat-maximized');
         maximizeChatBtn.textContent = '⛶ Maximize Chat';
 
         const errorDesc = document.querySelector('.error-description');
-        // Keep the code-block tags flush against the variable to prevent phantom indentation
         errorDesc.innerHTML = `
             <strong>${context.issue.title}</strong>
             <p>${context.issue.message}</p>
@@ -118,41 +182,44 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         const codeDiff = document.querySelector('.code-diff-viewer');
-        codeDiff.innerHTML = "<em>Analyzing rule and generating code suggestion...</em>";
+        codeDiff.innerHTML = "<em>Generating AI code suggestion...</em>";
 
-        const dynamicFix = generateDynamicFix(context.issue.ruleId, context.originalText);
-        const formattedFix = formatCodeBlock(dynamicFix);
+        vscode.postMessage({
+            command: 'generateFix',
+            context: context
+        });
+    }
 
-        setTimeout(() => {
-            codeDiff.innerHTML = `
-                <div class="code-header">
-                    <strong>Suggested Fix:</strong>
-                    <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
-                        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
-                        Copy
-                    </button>
-                </div>
-                <div class="code-block suggestion-block">${escapeHTML(formattedFix)}</div>
-            `;
+    function renderSuggestedFix(rawFix) {
+        const codeDiff = document.querySelector('.code-diff-viewer');
+        const formattedFix = formatCodeBlock(rawFix);
 
-            // Wire up the Copy Button to the system clipboard
-            const copyBtn = document.getElementById('copyFixBtn');
-            copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(formattedFix).then(() => {
-                    const originalIcon = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '✓ Copied!';
-                    copyBtn.style.color = 'var(--success-green)';
-                    copyBtn.style.borderColor = 'var(--success-green)';
-                    
-                    setTimeout(() => {
-                        copyBtn.innerHTML = originalIcon;
-                        copyBtn.style.color = '';
-                        copyBtn.style.borderColor = '';
-                    }, 2000);
-                });
+        codeDiff.innerHTML = `
+            <div class="code-header">
+                <strong>Suggested Fix:</strong>
+                <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
+                    Copy
+                </button>
+            </div>
+            <div class="code-block suggestion-block">${escapeHTML(formattedFix)}</div>
+        `;
+
+        const copyBtn = document.getElementById('copyFixBtn');
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(formattedFix).then(() => {
+                const originalIcon = copyBtn.innerHTML;
+                copyBtn.innerHTML = '✓ Copied!';
+                copyBtn.style.color = 'var(--success-green)';
+                copyBtn.style.borderColor = 'var(--success-green)';
+                
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalIcon;
+                    copyBtn.style.color = '';
+                    copyBtn.style.borderColor = '';
+                }, 2000);
             });
-
-        }, 400); 
+        });
     }
 
     backBtn.addEventListener('click', () => {
@@ -173,7 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function appendMessage(text, isUser) {
         const msgDiv = document.createElement('div');
         msgDiv.className = `chat-msg ${isUser ? 'msg-user' : 'msg-bot'}`;
-        msgDiv.innerHTML = text; // Safe here as we construct it internally
+        msgDiv.innerHTML = text;
         chatHistory.appendChild(msgDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
@@ -185,21 +252,41 @@ document.addEventListener('DOMContentLoaded', () => {
         appendMessage(escapeHTML(text), true);
         chatInput.value = '';
 
-        // Simulate Bot response
-        setTimeout(() => {
-            if (currentActiveError) {
-                const wcag = currentActiveError.rule.wcagCriteria.join(", ");
-                appendMessage(`Regarding <strong>${currentActiveError.issue.title}</strong>:<br><br>${currentActiveError.rule.remediation}<br><br><em>(WCAG Criteria: ${wcag})</em>`, false);
-            } else {
-                appendMessage("Please select an error from the list first.", false);
-            }
-        }, 600);
+        if (!currentActiveError) {
+            appendMessage("Please select an error from the list first.", false);
+            return;
+        }
+
+        const typingId = "typing-" + Date.now();
+        const typingDiv = document.createElement('div');
+        typingDiv.id = typingId;
+        typingDiv.className = 'chat-msg msg-bot';
+        typingDiv.innerHTML = '<em>Agent is typing...</em>';
+        chatHistory.appendChild(typingDiv);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        vscode.postMessage({
+            command: 'askChatbot',
+            text: text,
+            context: currentActiveError,
+            typingId: typingId
+        });
     }
 
     sendMsgBtn.addEventListener('click', sendMessage);
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
+
+    function formatBotMessage(text) {
+        if (!text) return '';
+        const escaped = escapeHTML(text);
+        return escaped
+            .replace(/```[\w]*\n([\s\S]*?)```/g, '<div class="code-block">$1</div>')
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+    }
 
     function formatCodeBlock(code) {
         if (!code) return '';

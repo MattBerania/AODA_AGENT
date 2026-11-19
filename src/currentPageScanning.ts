@@ -1,6 +1,7 @@
 import { extname } from "node:path";
 import type * as VSCode from "vscode";
 import { scanAccessibilityOutcome } from "./accessibility/scanner";
+import { OPEN_AGENT_UI_COMMAND } from "./agentUI";
 import { createScanResults, type ScanResults } from "./scanResults";
 import type { AccessibilityIssue } from "./types/accessibility";
 import type { ScannerIntegration, ScanSnapshot } from "./types/scannerIntegration";
@@ -27,6 +28,7 @@ export function registerCurrentPageScanning(
   let scheduledDocument: VSCode.TextDocument | undefined;
   let disposed = false;
   let scanningCurrentPage = false;
+
   function scanDocument(document: VSCode.TextDocument, notify: boolean): AccessibilityIssue[] {
     if (disposed) return [];
     if (!workspaceResults) results.clear();
@@ -44,7 +46,7 @@ export function registerCurrentPageScanning(
           ? `OPS AODA skipped this page. ${outcome.reason}`
           : issues.length === 0
           ? "Analyzed with no confirmed findings from the six implemented checks."
-          : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See Problems for details.`;
+          : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See AODA Agent UI for details.`;
         void api.window.showInformationMessage(message);
       }
       return issues;
@@ -88,7 +90,10 @@ export function registerCurrentPageScanning(
 
   const command = api.commands.registerCommand(SCAN_CURRENT_PAGE_COMMAND, (): AccessibilityIssue[] => {
     cancelPendingScan();
-    const document = api.window.activeTextEditor?.document;
+    const document =
+      api.window.activeTextEditor?.document ??
+      api.window.visibleTextEditors.find((editor) => isSupportedDocument(editor.document))?.document;
+
     if (!document) {
       void api.window.showInformationMessage("Open an .html or .cshtml document to scan.");
       return [];
@@ -97,7 +102,10 @@ export function registerCurrentPageScanning(
       void api.window.showWarningMessage("Current-page scanning supports .html and .cshtml documents.");
       return [];
     }
-    return scanDocument(document, true);
+
+    const issues = scanDocument(document, true);
+    void api.commands.executeCommand(OPEN_AGENT_UI_COMMAND);
+    return issues;
   });
 
   context.subscriptions.push(results.onDidChange((fileUri) => {

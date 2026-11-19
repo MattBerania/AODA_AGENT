@@ -97,19 +97,78 @@ details.aoda-accordion summary {
     margin: 5px 0 15px 0;
 }
 .error-item {
-    cursor: pointer;
-    padding: 12px 15px;
+    padding: 10px 12px;
     margin-bottom: 8px;
-    background-color: var(--sidebar-bg);
-    border-bottom: 2px solid var(--error-red); /* Required Red Underline */
-    border-radius: 4px 4px 0 0;
-    transition: background-color 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-.error-item:hover {
-    background-color: var(--item-hover);
+    background-color: transparent;
 }
 
+.error-title-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.error-title-label {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--vscode-foreground, #ffffff);
+}
+.error-badge {
+    background-color: var(--error-red);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 10px;
+    line-height: 1.2;
+}
+.error-line-container {
+    display: flex;
+    align-items: basline;
+    gap: 10px;
+    margin-left: 12px;
+    margin-bottom: 6px;
+}
+.error-line-number {
+    color: var(--vscode-descriptionForeground, #999999);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+}
+.error-code-link {
+    color: var(--error-red);
+    text-decoration: underline;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    display: block;
+    margin-top: 6px;
+}
+.error-code-link:hover {
+    opacity: 0.75;
+}
+.ui-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.toolbar-btn {
+    flex: 1;
+    padding: 6px 10px;
+    cursor: pointer;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    font-size: 12px;
+}
+
+.toolbar-btn.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
 /* Details & Chat Specifics */
 .section {
     margin-bottom: 25px;
