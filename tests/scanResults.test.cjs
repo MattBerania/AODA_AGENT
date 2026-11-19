@@ -64,12 +64,16 @@ function makeHost() {
     },
     window: {
       activeTextEditor: undefined,
+      visibleTextEditors: [],
       onDidChangeActiveTextEditor: events.editor.event,
       showInformationMessage: async (message) => { messages.info.push(message); },
       showWarningMessage: async (message) => { messages.warning.push(message); },
       showErrorMessage: async (message) => { messages.error.push(message); },
     },
-    commands: { registerCommand(id, handler) { commands.set(id, handler); return { dispose: () => commands.delete(id) }; } },
+    commands: {
+      executeCommand: async () => undefined,
+      registerCommand(id, handler) { commands.set(id, handler); return { dispose: () => commands.delete(id) }; },
+    },
   };
   const context = { subscriptions: [] };
   const results = registerWorkspaceScanResults(api, context);

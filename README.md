@@ -242,8 +242,8 @@ SVG/custom-element content, embedded controls, and server-processed descendants.
 Associated HTML labels (`for`/`id` or wrapping labels) are recognized as possible
 names, but their content is not validated yet. A child image without `alt` is
 left to the image rule: browser filename fallback makes the button name uncertain.
-Inline Razor button text such as `@Model.ButtonText` continues to trigger the
-existing whole-file skip; this detector does not expand Razor expression support.
+Simple dotted Razor button text such as `@Model.ButtonText` is treated as a
+possible runtime name. Its runtime value and naming quality are not validated.
 
 Input buttons and non-native `role="button"` elements are outside this increment.
 
@@ -258,8 +258,9 @@ HTML labels are not naming mechanisms for hyperlinks.
 
 A complete simple Razor destination such as `href="@Model.HelpUrl"` is supported:
 its runtime value is unknown, but it supplies no link name. An otherwise empty
-link still receives a finding. Razor-generated link text, method-call URLs and
-Tag Helpers remain subject to the existing skips. Non-empty ARIA references are
+link still receives a finding. Simple `@Model.HelpText` link text is treated as
+an uncertain runtime name. Method-call URLs and Tag Helpers remain subject to
+the existing skips. Non-empty ARIA references are
 recognized without resolving their targets. Link wording such as "Read more"
 is not judged for purpose or quality; this is a missing-name check only.
 
@@ -342,7 +343,7 @@ htmlparser2 offers speed and source indices but takes HTML parsing shortcuts;
 regex alone would require maintaining HTML tokenization and quoting logic.
 Neither library parses Razor.
 
-The initial Razor subset permits only complete quoted attribute values of the
+The Razor attribute subset permits complete quoted attribute values of the
 form `@identifier` or `@identifier.property`, including longer property chains.
 For example, `src="@Model.ImageUrl" alt="@Model.ImageDescription"` is supported;
 the runtime values are not evaluated. A dynamic `src` alone still lacks an
@@ -369,10 +370,27 @@ It replaces each directive character with a space, preserving source length and
 LF/CRLF/CR line endings. Findings and IDs therefore retain original positions.
 The source is never edited. `.html` inputs do not receive directive masking.
 
+Common ASCII email literals, such as `support@example.com`, are accepted in HTML
+text and quoted attribute values in both `.html` and `.cshtml` files. This does
+not enable arbitrary literal at signs or email-like strings inside scripts,
+styles, comments, inert templates or C# blocks.
+
+In `.cshtml` files, simple dotted `@Model.Property` expressions (including longer
+property chains) are also accepted in text inside explicit HTML elements. The
+expression must end at the text boundary or whitespace, comma, semicolon, colon
+or exclamation mark. Calls, indexers, null-conditional access, other expression
+roots and compound attribute values remain unsupported. Text expressions are
+left unchanged for parsing, preserving source positions. A dynamic name is
+uncertain: no missing-name error is inferred, and its runtime accessibility is
+not validated. Unrelated static findings are still reported. The combined
+`tests/fixtures/simple-expressions.cshtml` fixture demonstrates this behavior,
+including conservative exclusions for Tag Helper labels and inputs.
+
 **Any remaining unsupported `@` occurrence causes the entire source to be
 skipped.** This includes directives outside the supported leading header, Razor
 comments, C# blocks (including `@using (...) { ... }`), helpers, method calls,
-interpolated attribute values, and even literal email addresses. Tag-helper
+interpolated attribute values, and ambiguous literal at signs. Conditional and
+loop blocks (`@if`, `@foreach`) still cause explicit whole-file skips. Tag-helper
 directives such as `@addTagHelper` remain unsupported because they can change
 rendered markup. This is still a limited source-analysis subset of Razor.
 

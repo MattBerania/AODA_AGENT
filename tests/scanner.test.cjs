@@ -675,6 +675,109 @@ test('scanning changed source clears resolved findings without retaining previou
 });
 
 const { scanAccessibilityOutcome } = require('../dist/accessibility/scanner.js');
+for (const extension of ['html', 'cshtml']) {
+  for (const content of [
+    '<p>Contact support@example.com</p>',
+    'Contact first.last+support@example.co.uk',
+    '<a href="mailto:support@example.com">Email</a>',
+    "<p title='Email support@example.com or help@example.org'>Contact</p>",
+  ]) {
+    test(`email literal preserves other findings in ${extension}: ${content}`, () => {
+      const result = scanAccessibilityOutcome(content + '<img>', `file:///demo/email.${extension}`);
+      assert.equal(result.status, 'analyzed');
+      assert.deepEqual(result.issues.map(issue => issue.ruleId), ['image-text-alternative']);
+      assert.equal(JSON.parse(result.issues[0].id)[2], content.length);
+    });
+  }
+}
+
+for (const content of [
+  '<p>@Model.EmployeeName</p>',
+  '<p>Hello @Model.Employee.Name!</p>',
+  '<button>@Model.ButtonText</button>',
+  '<a href="@Model.HelpUrl">@Model.HelpText</a>',
+  '<label for="name">@Model.FieldName</label><input id="name">',
+  '<label>@Model.FieldName<input></label>',
+  '<button><span>@Model.ButtonText</span></button>',
+  '<label asp-for="EmployeeName"></label><input asp-for="EmployeeName" />',
+  '<img src="@Model.ImageUrl" alt="@Model.ImageDescription">',
+]) {
+  test(`supported dynamic markup leaves unrelated findings visible: ${content}`, () => {
+    const result = scanAccessibilityOutcome(content + '<img>', uri);
+    assert.equal(result.status, 'analyzed');
+    assert.deepEqual(result.issues.map(issue => issue.ruleId), ['image-text-alternative']);
+  });
+}
+
+for (const content of [
+  '@if (Model.IsActive)\n{\n<img>\n}',
+  '@foreach (var employee in Model.Employees)\n{\n<button></button>\n}',
+  '<button>@Model.GetName()</button>',
+  '<button>@Model.Names[0]</button>',
+  '<button>@Model.Name?.Text</button>',
+  '<button>@Model.Name.Other()</button>',
+  '<button>@(Model.Name)</button>',
+  '<button>@Model</button>',
+  '<button>@Html.Raw</button>',
+  '<p>@Model.Name@Other.Name</p>',
+  '<p>support@example.com @Html.Raw("<img>")</p>',
+  '<div>@{ var email = "support@example.com"; }</div>',
+  '<img src="/images/@Model.ImageUrl">',
+  '<img @Model.Attributes>',
+  '<img @attribute="@Model.ImageUrl">',
+  '<p title="support@example.com @GetName()">Contact</p>',
+  '<p title=support@example.com>Contact</p>',
+  '<!-- support@example.com -->',
+  '<script>const email = "support@example.com";</script>',
+  '<style>/* support@example.com */</style>',
+  '<template><p>@Model.Name</p></template>',
+  '<svg><text>@Model.Name</text></svg>',
+  '@Model.Name',
+  '@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers\n<input asp-for="Name">',
+]) {
+  test(`unsupported or ambiguous Razor remains explicitly skipped: ${content}`, () => {
+    const result = scanAccessibilityOutcome(content + '<img>', uri);
+    assert.equal(result.status, 'skipped');
+    assert.match(result.reason, /Unsupported Razor|Malformed HTML/);
+    assert.deepEqual(result.issues, []);
+  });
+}
+
+test('HTML emails are supported without enabling Razor text expressions in HTML files', () => {
+  const result = scanAccessibilityOutcome('<button>@Model.Name</button><img>', 'file:///demo/page.html');
+  assert.equal(result.status, 'skipped');
+});
+
+test('dynamic label text does not name an unrelated control', () => {
+  const result = scanAccessibilityOutcome('<label for="other">@Model.Label</label><input id="name">', uri);
+  assert.equal(result.status, 'analyzed');
+  assert.deepEqual(result.issues.map(issue => issue.ruleId), ['form-control-name']);
+});
+
+test('raw iframe text remains outside the supported expression contexts', () => {
+  assert.equal(scanAccessibilityOutcome('<iframe>@Model.FrameName</iframe><img>', uri).status, 'skipped');
+});
+
+test('email and expression support retains original UTF-16 ranges, newline forms and IDs', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const lines = ['@model Product', '<p>support@example.com @Model.Name</p>', '\uD83D\uDE00  <img', ' src="@Model.ImageUrl">'];
+    const source = lines.join(newline);
+    const result = scanAccessibilityOutcome(source, uri);
+    assert.equal(result.status, 'analyzed');
+    assert.equal(result.issues.length, 1);
+    const issue = result.issues[0];
+    assert.deepEqual(issue.range, { startLine: 2, startCharacter: 4, endLine: 3, endCharacter: lines[3].length });
+    assert.deepEqual(JSON.parse(issue.id), [uri, 'image-text-alternative', source.indexOf('<img'), source.length]);
+  }
+});
+
+test('combined Razor fixture reports only definite static problems', () => {
+  const fixture = join(__dirname, 'fixtures', 'simple-expressions.cshtml');
+  const result = scanAccessibilityOutcome(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href);
+  assert.equal(result.status, 'analyzed');
+  assert.deepEqual(result.issues.map(issue => issue.ruleId), ['image-text-alternative', 'button-name']);
+});
+
 test('structured outcomes distinguish findings, clean analysis, and deliberate skips', () => {
   assert.equal(scanAccessibilityOutcome('<img>', uri).issues.length, 1);
   assert.deepEqual(scanAccessibilityOutcome('<img alt="">', uri), { status: 'analyzed', issues: [] });
@@ -693,4 +796,89 @@ test('unexpected detector errors produce failed outcomes and legacy API throws',
     assert.deepEqual(scanAccessibilityOutcome('<img>', uri), { status: 'failed', issues: [], reason: 'metadata unavailable' });
     assert.throws(() => scanAccessibility('<img>', uri), /metadata unavailable/);
   } finally { rules.getRule = original; }
+});
+
+const serviceRequestSetup = '@{\n    ViewData["Title"] = "Service Request";\n}';
+
+test('exact Service Request setup preserves all six findings and original UTF-16 positions', () => {
+  const html = readFileSync(join(__dirname, 'fixtures', 'missing-names.html'), 'utf8')
+    .replace('    <img src="logo.png">', '    \uD83D\uDE00<img\n src="logo.png">');
+  const expected = ['document-language', 'image-text-alternative', 'form-control-name',
+    'button-name', 'link-name', 'iframe-name'];
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const source = (serviceRequestSetup + '\n' + html).replace(/\r\n|\r|\n/g, newline);
+    const prepared = maskRazorDirectives(source);
+    const prefix = serviceRequestSetup.replace(/\n/g, newline);
+    assert.equal(prepared.length, source.length);
+    assert.equal(prepared, prefix.replace(/[^\r\n]/g, ' ') + source.slice(prefix.length));
+    const result = scanAccessibilityOutcome(source, uri);
+    assert.equal(result.status, 'analyzed');
+    assert.deepEqual(result.issues.map(issue => issue.ruleId), expected);
+    const lineStarts = [0];
+    for (const match of source.matchAll(/\r\n|\r|\n/g)) lineStarts.push(match.index + match[0].length);
+    const tags = ['<html>', '<img' + newline + ' src="logo.png">',
+      '<input id="request-name" type="text">', '<button type="submit">',
+      '<a href="/help">', '<iframe src="/map">'];
+    result.issues.forEach((issue, index) => {
+      const start = lineStarts[issue.range.startLine] + issue.range.startCharacter;
+      const end = lineStarts[issue.range.endLine] + issue.range.endCharacter;
+      assert.equal(start, source.indexOf(tags[index]));
+      assert.equal(source.slice(start, end), tags[index]);
+      assert.deepEqual(JSON.parse(issue.id), [uri, expected[index], start, end]);
+    });
+    assert.deepEqual(scanAccessibility(source, uri), result.issues);
+    assert.equal(scanAccessibilityOutcome(source, 'file:///demo/view.html').status, 'skipped');
+  }
+});
+
+test('actual service request fixture exposes its four static findings after setup masking', () => {
+  const fixture = join(__dirname, 'aoda_test_pack', '03_service_request.cshtml');
+  const result = scanAccessibilityOutcome(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href);
+  assert.equal(result.status, 'analyzed');
+  assert.deepEqual(result.issues.map(issue => issue.ruleId),
+    ['image-text-alternative', 'form-control-name', 'button-name', 'iframe-name']);
+});
+
+test('setup masking composes with leading directives, blank lines, BOM and repeated blocks', () => {
+  const source = '\uFEFF @model Product\n\n  ' + serviceRequestSetup +
+    '\n@using MyApp.Models\n' + serviceRequestSetup + '\n  <img>';
+  const result = scanAccessibilityOutcome(source, uri);
+  assert.equal(result.status, 'analyzed');
+  assert.equal(result.issues.length, 1);
+  assert.deepEqual(JSON.parse(result.issues[0].id),
+    [uri, 'image-text-alternative', source.indexOf('<img>'), source.length]);
+  assert.deepEqual(scanAccessibilityOutcome(serviceRequestSetup, uri), { status: 'analyzed', issues: [] });
+});
+
+test('literal setup strings handle braces, markup, escapes and UTF-16 without generating findings', () => {
+  const block = String.raw`@{ ViewData["Title"] = "} <img> @name \"quoted\" \\ \u0041 😀"; ViewData["Other"] = "{"; }`;
+  const source = block + '\n<img>';
+  assert.equal(maskRazorDirectives(source), ' '.repeat(block.length) + '\n<img>');
+  assert.equal(scanAccessibilityOutcome(source, uri).issues.length, 1);
+});
+
+test('unsupported setup and blocks inside markup remain conservative whole-file skips', () => {
+  for (const prefix of [
+    '@{\n    ViewData["Title"] = "Service Request";\n',
+    '@{ ViewData["Title"] = "unterminated; }',
+    '@{ ViewData["Title"] = GetTitle(); }',
+    '@{ ViewData["Title"] = $"Title {Model.Name}"; }',
+    '@{ ViewData["Title"] = @"Title"; }',
+    '@{ ViewData["Title"] = """Title"""; }',
+    '@{ ViewData["Title"] = "Title"; /* } */ }',
+    '@{ ViewData["Title"] = "Title"; if (true) { } }',
+    '@{ ViewData["Title"] = "Title"; <img> }',
+    '@{ var html = "<img>"; }',
+    '<div>\n' + serviceRequestSetup + '\n</div>',
+    '<!--\n' + serviceRequestSetup + '\n-->',
+    '<script>\n' + serviceRequestSetup + '\n</script>',
+    '@if (true) { <img> }\n' + serviceRequestSetup,
+  ]) {
+    const source = prefix + '\n<img>';
+    assert.equal(maskRazorDirectives(source), source);
+    assert.equal(scanAccessibilityOutcome(source, uri).status, 'skipped');
+  }
+  for (const suffix of ['\n@if (true) { <img> }', '\n<img', '\n<button>@GetName()</button>']) {
+    assert.equal(scanAccessibilityOutcome(serviceRequestSetup + suffix, uri).status, 'skipped');
+  }
 });

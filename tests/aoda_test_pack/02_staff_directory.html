@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staff Directory</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 760px; margin: 36px auto; padding: 0 20px; line-height: 1.5; }
+    .card { border: 1px solid #d5dce4; border-radius: 8px; padding: 18px; margin: 16px 0; }
+    img { width: 120px; height: 120px; object-fit: cover; }
+    label { display: block; margin: 10px 0 4px; }
+    input { padding: 8px; }
+    button { padding: 9px 14px; margin: 12px 0; }
+    .decorative { width: 100%; height: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Staff Directory</h1>
+    <p>Find a team member or contact the office.</p>
+  </header>
+
+  <main>
+    <img class="decorative" src="/images/divider.png" alt="">
+
+    <section class="card">
+      <h2>Team directory</h2>
+      <img src="/images/profile.jpg" alt="Portrait of a staff member">
+      <p>General inquiries: <a href="mailto:office@example.org">office@example.org</a></p>
+      <form action="/directory" method="get">
+        <label for="staff-name">Staff member name</label>
+        <input id="staff-name" name="staff-name" type="text">
+        <button type="submit">Search directory</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Send a note</h2>
+      <form action="/contact" method="post">
+        <label for="sender">Your name</label>
+        <input id="sender" name="sender" type="text">
+        <input id="reply-email" name="reply-email" type="email" placeholder="Your email address">
+        <button type="submit" aria-label="Send your message">Send</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Office information</h2>
+      <p><a href="/office-hours">View office hours</a></p>
+      <iframe src="/office-map" title="Office location map"></iframe>
+      <p><a href="/directory/export"></a></p>
+    </section>
+  </main>
+</body>
+</html>

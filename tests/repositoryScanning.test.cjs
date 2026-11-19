@@ -1,5 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const {
   discoverSupportedFiles, scanRepositoryFiles, registerRepositoryScanning, SCAN_REPOSITORY_COMMAND,
 } = require('../dist/repositoryScanning.js');
@@ -151,6 +153,38 @@ test('unsupported Razor is processed without claiming a clean result', async () 
   await host.run();
   assert.match(host.messages.info[0], /1 processed, 0 confirmed findings, 0 failed/);
   assert.match(host.messages.info[0], /analyzed 0, skipped 1/);
+});
+
+test('repository coverage includes emails and Model text but still skips conditionals and loops', async () => {
+  const files = ['email.html', 'expressions.cshtml', 'conditional.cshtml', 'loop.cshtml'].map(name => makeUri('file:///demo/' + name));
+  const sources = [
+    '<p>support@example.com</p>\r\n  <img>',
+    readFileSync(join(__dirname, 'fixtures', 'simple-expressions.cshtml'), 'utf8'),
+    '@if (Model.Show) { <img> }',
+    '@foreach (var item in Model.Items) { <button></button> }',
+  ];
+  const host = makeHost({ discover: async () => files, open: async uri => ({
+    uri, version: 1, getText: () => sources[files.indexOf(uri)],
+  }) });
+  const result = await scanRepositoryFiles(host.api, files);
+  assert.deepEqual(result.outcomes.map(entry => entry.status), ['analyzed', 'analyzed', 'skipped', 'skipped']);
+  assert.deepEqual(result.outcomes.map(entry => entry.issues.length), [1, 2, 0, 0]);
+  assert.equal(result.failures.length, 0);
+  for (const [index, snapshot] of result.snapshots.entries()) {
+    const source = sources[index];
+    const lines = source.split(/\r\n|\r|\n/);
+    for (const issue of snapshot.issues) {
+      const [, , start, end] = JSON.parse(issue.id);
+      const fromRange = lines[issue.range.startLine].slice(issue.range.startCharacter, issue.range.endCharacter);
+      assert.equal(source.slice(start, end), fromRange);
+      assert.equal(issue.fileUri, files[index].toString());
+    }
+  }
+  await host.run();
+  assert.match(host.messages.info[0], /3 confirmed findings, 0 failed/);
+  assert.match(host.messages.info[0], /Files attempted 4, analyzed 2, skipped 2/);
+  assert.match(host.messages.warning[0], /conditional.cshtml/);
+  assert.match(host.messages.warning[0], /loop.cshtml/);
 });
 
 test('mixed outcomes report exact coverage totals and reasons', async () => {

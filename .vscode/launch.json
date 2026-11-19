@@ -6,7 +6,7 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "${workspaceFolder}/tests/fixtures",
+        "${workspaceFolder}/tests/aoda_test_pack",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],

@@ -31,11 +31,10 @@ from the Command Palette. Inspect findings in Problems. Scan messages distinguis
 | `recognized-accessible-names.cshtml` | Analyzed | 0 | Named equivalents of the six elements and an explicit language |
 | `unsupported-conditional.cshtml` | Skipped | 0 | Unsupported Razor reason, despite an unnamed image and button |
 | `malformed-markup.cshtml` | Skipped | 0 | Malformed HTML reason caused by a duplicate attribute, despite an unnamed button |
-| `literal-email.cshtml` | Skipped | 0 | Existing literal-email limitation is reported explicitly, despite an image missing alt |
+| `literal-email.cshtml` | Analyzed | 1 | Literal email is accepted; the image missing alt is reported |
 
-Previously, the last three examples returned the same empty findings array as a
-successfully analyzed zero-finding file. These examples verify explicit skip
-reporting. The email example documents the deferred literal-at-sign limitation.
+The unsupported and malformed examples verify explicit skip reporting. The
+email example verifies that a literal address no longer hides static findings.
 
 For a manual rescan test, open `missing-accessible-names.cshtml`, scan it, then
 replace its contents with `recognized-accessible-names.cshtml`. Its six Problems
@@ -43,7 +42,7 @@ entries should disappear. Replace its contents with `unsupported-conditional.csh
 to check the skipped status, then restore the original contents to recover six findings.
 
 Run Scan Repository with only these five files in a temporary workspace folder to
-expect 5 attempted, 2 analyzed, 3 skipped, 0 failed, and 6 findings. Scanning this
+expect 5 attempted, 3 analyzed, 2 skipped, 0 failed, and 7 findings. Scanning this
 legacy directory also includes its three original fixtures.
 
 Unexpected scanner failures require a runtime error and are covered by automated

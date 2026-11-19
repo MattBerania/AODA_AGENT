@@ -1,0 +1,13 @@
+@model MyApp.EmployeeViewModel
+<section>
+  <p>Contact support@example.com</p>
+  <p>@Model.EmployeeName</p>
+  <button>@Model.ButtonText</button>
+  <a href="@Model.HelpUrl">@Model.HelpText</a>
+  <label for="display-name">@Model.DisplayName</label>
+  <input id="display-name">
+  <label asp-for="EmployeeName"></label>
+  <input asp-for="EmployeeName" />
+  <img src="@Model.ImageUrl">
+  <button></button>
+</section>

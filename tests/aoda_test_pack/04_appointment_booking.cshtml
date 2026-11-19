@@ -1,0 +1,52 @@
+@{
+    ViewData["Title"] = "Appointment Booking";
+}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Appointment Booking</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 720px; margin: 36px auto; padding: 0 20px; line-height: 1.5; }
+    .panel { padding: 18px; border: 1px solid #d0d8e2; border-radius: 8px; }
+    label { display: block; margin: 12px 0 4px; }
+    input, select { padding: 8px; min-width: 230px; }
+    button { padding: 10px 16px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Book an Appointment</h1>
+    <p>Select an available appointment date and provide your details.</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Appointment details</h2>
+      <form action="/appointments/book" method="post">
+        <label for="visitor-name">Full name</label>
+        <input id="visitor-name" name="visitor-name" type="text" />
+
+        <label for="appointment-date">Preferred date</label>
+        <input id="appointment-date" name="appointment-date" type="date" />
+
+        <input id="reference-number" name="reference-number" type="text" placeholder="Reference number" />
+
+        <label for="appointment-type">Appointment type</label>
+        <select id="appointment-type" name="appointment-type">
+          <option value="in-person">In person</option>
+          <option value="remote">Remote</option>
+        </select>
+
+        <button type="submit">Book appointment</button>
+      </form>
+    </section>
+
+    <h2>More information</h2>
+    <p><a href="/appointments/policy">Appointment policy</a></p>
+    <p><a href="/appointments/contact"></a></p>
+    <img src="/images/calendar-decoration.png" alt="" width="300" height="80" />
+  </main>
+</body>
+</html>
