@@ -58,6 +58,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadErrorDetails(message.payload);
             }
         }
+        else if (message.type === 'FIX_APPLIED') {
+            const generateBtn = document.getElementById('generateFixBtn');
+            if (!generateBtn) return;
+
+            if (message.success) {
+                generateBtn.textContent = '✓ Applied!';
+                generateBtn.style.color = 'var(--success-green)';
+                generateBtn.style.borderColor = 'var(--success-green)';
+            } else {
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Failed — Retry';
+            }
+        }
     });
 
     // 2. DYNAMIC SIDEBAR GENERATION
@@ -197,13 +210,31 @@ document.addEventListener('DOMContentLoaded', () => {
         codeDiff.innerHTML = `
             <div class="code-header">
                 <strong>Suggested Fix:</strong>
-                <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
-                    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
-                    Copy
-                </button>
+                <div class="code-actions">
+                    <button id="generateFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
+                        Generate
+                    </button>
+                    <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
+                        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
+                        Copy
+                    </button>
+                </div>
             </div>
             <div class="code-block suggestion-block">${escapeHTML(formattedFix)}</div>
         `;
+
+        const generateBtn = document.getElementById('generateFixBtn');
+        generateBtn.addEventListener('click', () => {
+            if (!currentActiveError) return;
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Applying...';
+
+            vscode.postMessage({
+                command: 'applyFix',
+                fixCode: formattedFix,
+                context: currentActiveError
+            });
+        });
 
         const copyBtn = document.getElementById('copyFixBtn');
         copyBtn.addEventListener('click', () => {

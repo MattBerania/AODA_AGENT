@@ -199,6 +199,45 @@ export function registerAgentUI(
                     });
                     break;
                 }
+                
+                case 'applyFix': {
+                    const { fixCode, context: fixContext } = message;
+                    const issue = fixContext?.issue;
+
+                    if (!issue?.fileUri || !issue?.range || typeof fixCode !== 'string') {
+                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
+                        break;
+                    }
+
+                    try {
+                        const uri = api.Uri.parse(issue.fileUri);
+                        const document = await api.workspace.openTextDocument(uri);
+                        const range = new api.Range(
+                            issue.range.startLine,
+                            issue.range.startCharacter,
+                            issue.range.endLine,
+                            issue.range.endCharacter
+                        );
+
+                        // Match the indentation of the original line for multi-line fixes
+                        const lineText = document.lineAt(issue.range.startLine).text;
+                        const indent = lineText.match(/^\s*/)?.[0] ?? '';
+                        const indentedFix = fixCode
+                            .split('\n')
+                            .map((line: string, i: number) => (i === 0 ? line : indent + line))
+                            .join('\n');
+
+                        const edit = new api.WorkspaceEdit();
+                        edit.replace(uri, range, indentedFix);
+                        const success = await api.workspace.applyEdit(edit);
+
+                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success });
+                    } catch (err) {
+                        console.error('Error applying fix:', err);
+                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
+                    }
+                    break;
+                }
 
                 case 'scanCurrentPage': {
                     await api.commands.executeCommand('opsAoda.scanCurrentPage');

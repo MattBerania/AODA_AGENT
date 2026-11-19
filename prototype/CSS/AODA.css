@@ -186,7 +186,6 @@ details.aoda-accordion summary {
 .suggestion-block {
     border-left: 4px solid var(--success-green);
 }
-
 /* Chatbot UI */
 .chat-section {
     display: flex;
@@ -287,6 +286,19 @@ details.aoda-accordion summary {
     justify-content: space-between;
     align-items: flex-end;
     margin-bottom: 5px;
+}
+.code-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.generate-btn {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border-color: var(--vscode-button-background);
+}
+.generate-btn:hover:not(:disabled) {
+    background: var(--vscode-button-hoverBackground);
 }
 .copy-btn {
     background: transparent;
