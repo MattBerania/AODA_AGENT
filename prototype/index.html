@@ -1,56 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AODA Agent UI</title>
-    <link rel="stylesheet" href="CSS/AODA.css">
+    <link rel="stylesheet" href="CSS/AODA.css" />
 </head>
 <body>
     <div id="app-container">
-        
-        <!-- View 1: Accessibility Issues List -->
         <div id="error-list-view" class="view-panel active">
-            <div class="panel-header">
-                <h2>AODA/WCAG 2.2 Issues</h2>
-            </div>
             <div class="ui-toolbar">
                 <button id="scanPageBtn" class="toolbar-btn primary">Scan Current Page</button>
-                <button id="showIssuesBtn" class="toolbar-btn">Show Scan Issues</button>
+                <button id="scanRepoBtn" class="toolbar-btn">Scan Repository</button>
             </div>
-            <div id="sidebar-content" class="scrollable-content">
-                <!-- Populated dynamically by JS -->
-                <p style="padding: 15px; color: var(--vscode-testing-iconPassed);">Waiting for scan results...</p>
-            </div>
+            <div id="sidebar-content" class="scrollable-content"></div>
         </div>
 
-        <!-- View 2: Issue Details & Chatbot -->
         <div id="detail-chat-view" class="view-panel">
             <div class="panel-header action-header">
-                <button id="backBtn" class="icon-btn">⬅ Back to List</button>
-                <button id="maximizeChatBtn" class="icon-btn" title="Toggle Fullscreen Chat">⛶ Maximize Chat</button>
+                <button id="backBtn" class="icon-btn">&larr; Back to List</button>
             </div>
-            
-            <div class="scrollable-content detail-container">
-                <!-- Hides when chat is maximized -->
-                <div class="collapsible-context">
+
+            <div class="detail-container scrollable-content">
+                <div class="collapsible-context section">
                     <div class="error-description section"></div>
                     <div class="code-diff-viewer section"></div>
                 </div>
-                
-                <!-- Chatbot Area -->
-                <div class="chat-section section">
-                    <h3>AODA Assistant</h3>
+
+                <div class="chat-section">
+                    <div class="chat-header">
+                        <span>AODA Assistant</span>
+                        <button
+                            id="maximizeChatBtn"
+                            class="chat-icon-btn"
+                            aria-label="Maximize chat"
+                            title="Maximize chat"
+                        >⛶</button>
+                    </div>
+
                     <div class="chat-history"></div>
+
                     <div class="chat-input-area">
-                        <input type="text" id="chatInput" placeholder="Ask a question about this rule...">
+                        <input type="text" id="chatInput" placeholder="Ask about this issue..." />
                         <button id="sendMsgBtn">Send</button>
+                        <button id="clearChatBtn" type="button" title="Clear chat history">Clear</button>
                     </div>
                 </div>
             </div>
         </div>
-
     </div>
+
     <script src="JS/AODA_Agent.js"></script>
 </body>
 </html>

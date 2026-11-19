@@ -199,7 +199,7 @@ export function registerAgentUI(
                     });
                     break;
                 }
-                
+
                 case 'applyFix': {
                     const { fixCode, context: fixContext } = message;
                     const issue = fixContext?.issue;
@@ -245,10 +245,8 @@ export function registerAgentUI(
                     break;
                 }
 
-                case 'showScanIssues': {
-                    if (!scanner.getLatestScan()) {
-                        await api.commands.executeCommand('opsAoda.scanCurrentPage');
-                    }
+                case 'scanRepository': {
+                    await api.commands.executeCommand('opsAoda.scanRepository');
                     updateWebview();
                     break;
                 }

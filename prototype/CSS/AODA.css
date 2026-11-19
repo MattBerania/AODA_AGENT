@@ -211,6 +211,44 @@ details.aoda-accordion summary {
     font-size: 12px;
     font-weight: 600;
 }
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.chat-icon-btn {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.chat-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+#clearChatBtn {
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+#clearChatBtn:hover {
+    background: var(--vscode-button-secondaryHoverBackground);
+}
 .chat-history {
     flex: 1;
     min-height: 250px;
@@ -240,6 +278,7 @@ details.aoda-accordion summary {
 }
 .chat-input-area {
     display: flex;
+    gap: 8px;
     padding: 12px;
     background: var(--vscode-editorGroupHeader-tabsBackground);
     border-top: 1px solid var(--border-color);

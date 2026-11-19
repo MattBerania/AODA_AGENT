@@ -12,17 +12,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const backBtn = document.getElementById('backBtn');
     const maximizeChatBtn = document.getElementById('maximizeChatBtn');
     const scanPageBtn = document.getElementById('scanPageBtn');
-    const showIssuesBtn = document.getElementById('showIssuesBtn');
+    const scanRepoBtn = document.getElementById('scanRepoBtn');
 
     scanPageBtn.addEventListener('click', () => {
         sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning current page...</em></p>';
         vscode.postMessage({ command: 'scanCurrentPage' });
     });
 
-    showIssuesBtn.addEventListener('click', () => {
+    scanRepoBtn.addEventListener('click', () => {
         detailChatView.classList.remove('active');
         errorListView.classList.add('active');
-        vscode.postMessage({ command: 'showScanIssues' });
+        sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning repository...</em></p>';
+        vscode.postMessage({ command: 'scanRepository' });
     });
     
     // 1. LISTEN FOR LIVE VS CODE DATA
@@ -177,12 +178,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. NAVIGATION & DETAILS
     function loadErrorDetails(context) {
+        const isNewError = !currentActiveError || currentActiveError.issue.id !== context.issue.id;
         currentActiveError = context;
+        if (isNewError) {
+            chatHistory.innerHTML = '';
+        }
         
         errorListView.classList.remove('active');
         detailChatView.classList.add('active');
         detailContainer.classList.remove('chat-maximized');
-        maximizeChatBtn.textContent = '⛶ Maximize Chat';
+        maximizeChatBtn.textContent = '⛶';
+        maximizeChatBtn.setAttribute('aria-label', 'Maximize Chat');
+        maximizeChatBtn.title = 'Maximize Chat';
+
+
 
         const errorDesc = document.querySelector('.error-description');
         errorDesc.innerHTML = `
@@ -260,13 +269,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     maximizeChatBtn.addEventListener('click', () => {
         const isMaximized = detailContainer.classList.toggle('chat-maximized');
-        maximizeChatBtn.textContent = isMaximized ? '🗗 Minimize Chat' : '⛶ Maximize Chat';
+        maximizeChatBtn.textContent = isMaximized ? '🗗' : '⛶';
+        const label = isMaximized ? 'Minimize chat' : 'Maximize chat';
+        maximizeChatBtn.setAttribute('aria-label', label);
+        maximizeChatBtn.title = label;
     });
 
     // 5. INTERACTIVE CHATBOT LOGIC
     const chatInput = document.getElementById('chatInput');
     const sendMsgBtn = document.getElementById('sendMsgBtn');
     const chatHistory = document.querySelector('.chat-history');
+    const clearChatBtn = document.getElementById('clearChatBtn');
+    clearChatBtn.addEventListener('click', () => {
+        chatHistory.innerHTML = '';
+    });
 
     function appendMessage(text, isUser) {
         const msgDiv = document.createElement('div');
