@@ -69,6 +69,7 @@ function makeHost(document) {
     DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
     window: {
       activeTextEditor: document ? { document } : undefined,
+      visibleTextEditors: [],
       onDidChangeActiveTextEditor: events.activeEditor.event,
       showInformationMessage(message) { messages.info.push(message); return Promise.resolve(); },
       showWarningMessage(message) { messages.warning.push(message); return Promise.resolve(); },
@@ -85,6 +86,7 @@ function makeHost(document) {
       },
     },
     commands: {
+      executeCommand: async () => undefined,
       registerCommand(id, handler) {
         commands.set(id, handler);
         return { dispose() { commands.delete(id); } };
@@ -770,12 +772,43 @@ test('editing clears displayed details while waiting for updated findings', asyn
   assert.equal(host.integration.getLatestScan(), undefined);
 });
 
+test('Razor expressions retain diagnostic source and contexts across automatic rescan outcomes', (t) => {
+  const fixture = join(__dirname, 'fixtures', 'simple-expressions.cshtml');
+  const document = makeDocument(readFileSync(fixture, 'utf8'), pathToFileURL(fixture).href);
+  const host = makeHost(document);
+  try {
+    const findings = host.run();
+    assert.equal(host.integration.getLatestScan().status, 'analyzed');
+    assert.deepEqual(findings.map(issue => issue.ruleId), ['image-text-alternative', 'button-name']);
+    const diagnostics = host.collection.entries.get(document.uri);
+    for (const [index, issue] of findings.entries()) {
+      const originalText = document.getText(diagnostics[index].range);
+      assert.equal(originalText, index === 0 ? '<img src="@Model.ImageUrl">' : '<button>');
+      assert.equal(host.integration.getIssueContext(issue.id).originalText, originalText);
+    }
+
+    host.edit('@if (Model.Show) { <img> }');
+    t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+    assert.equal(host.integration.getLatestScan().status, 'skipped');
+    assert.equal(host.collection.entries.get(document.uri).length, 0);
+    assert.equal(host.integration.getIssueContext(findings[0].id), undefined);
+
+    host.edit('<p>support@example.com @Model.Name</p><img alt="Logo">');
+    t.mock.timers.tick(SCAN_DEBOUNCE_MS);
+    assert.equal(host.integration.getLatestScan().status, 'analyzed');
+    assert.equal(host.integration.getLatestScan().issues.length, 0);
+    assert.equal(host.collection.entries.get(document.uri).length, 0);
+  } finally {
+    for (const subscription of host.context.subscriptions) subscription.dispose();
+  }
+});
+
 for (const [name, status, count, reason] of [
   ['missing-accessible-names.cshtml', 'analyzed', 6],
   ['recognized-accessible-names.cshtml', 'analyzed', 0],
   ['unsupported-conditional.cshtml', 'skipped', 0, /Unsupported Razor/],
   ['malformed-markup.cshtml', 'skipped', 0, /Malformed HTML/],
-  ['literal-email.cshtml', 'skipped', 0, /literal @/],
+  ['literal-email.cshtml', 'analyzed', 1],
 ]) {
   test('legacy outcome regression fixture: ' + name, () => {
     const fixture = join(__dirname, 'fixtures', 'legacy', name);
@@ -792,6 +825,10 @@ for (const [name, status, count, reason] of [
         assert.match(host.messages.info[0], /skipped this page/);
       } else if (count === 0) {
         assert.match(host.messages.info[0], /Analyzed with no confirmed findings/);
+      } else if (name === 'literal-email.cshtml') {
+        assert.deepEqual(findings.map(issue => issue.ruleId), ['image-text-alternative']);
+        assert.equal(document.getText(host.collection.entries.get(document.uri)[0].range),
+          '<img src="/Content/Images/logo.png">');
       } else {
         assert.deepEqual(new Set(findings.map(issue => issue.ruleId)), new Set([
           'document-language', 'image-text-alternative', 'form-control-name',

@@ -1,7 +1,7 @@
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 import type { AccessibilityIssue, ScanOutcome } from "../types/accessibility";
 import { getRule } from "./rules";
-import { maskRazorDirectives } from "./razor";
+import { hasUnsupportedRazorText, maskRazorDirectives } from "./razor";
 
 type Node = DefaultTreeAdapterMap["node"];
 type Element = DefaultTreeAdapterMap["element"];
@@ -21,18 +21,44 @@ function elements(root: Node): Element[] {
 }
 
 /**
- * This is a Razor safety gate, not a Razor parser. Only a complete, quoted
- * @identifier.property value is supported. Anything else containing @ causes
- * the entire file to be skipped, including unmasked directives, helpers and comments.
- * Removing accepted attribute spans here never changes the parsed source.
+ * This is a Razor safety gate, not a Razor parser. Accept quoted simple attribute
+ * expressions, email literals in markup, and (in Razor files) dotted Model text.
+ * Other @ occurrences still skip the file. Accepted spans never change parsing.
  */
-function hasUnsupportedRazor(source: string, nodes: Element[]): boolean {
+function hasUnsupportedRazor(source: string, nodes: Element[], isRazor: boolean): boolean {
   if (!source.includes("@")) return false;
   const spans: { start: number; end: number }[] = [];
   for (const node of nodes) {
     for (const location of Object.values(node.sourceCodeLocation?.attrs ?? {})) {
       const attribute = source.slice(location.startOffset, location.endOffset);
-      if (/^[^\s=]+\s*=\s*(["'])@[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\1$/.test(attribute)) {
+      if (/^[^\s=@]+\s*=\s*(["'])@[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\1$/.test(attribute)) {
+        spans.push({ start: location.startOffset, end: location.endOffset });
+      } else {
+        const quoted = /^[^\s=@]+\s*=\s*(["'])([\s\S]*)\1$/.exec(attribute);
+        if (quoted && !hasUnsupportedRazorText(quoted[2]!)) {
+          spans.push({ start: location.startOffset, end: location.endOffset });
+        }
+      }
+    }
+    // Never classify C#, JavaScript, CSS, inert markup or foreign content as
+    // ordinary markup text, even when it happens to contain an email/property.
+    let ancestor: Node | null = node;
+    let markupText = true;
+    while (ancestor && "tagName" in ancestor) {
+      if (ancestor.namespaceURI !== "http://www.w3.org/1999/xhtml" ||
+        ["script", "style", "template", "xmp", "iframe", "noembed", "noframes", "plaintext"].includes(ancestor.tagName)) {
+        markupText = false;
+        break;
+      }
+      ancestor = ancestor.parentNode;
+    }
+    if (!markupText) continue;
+    for (const child of node.childNodes) {
+      if (!("value" in child) || !child.sourceCodeLocation) continue;
+      const location = child.sourceCodeLocation;
+      const text = source.slice(location.startOffset, location.endOffset);
+      // An explicit HTML parent avoids accepting standalone directives/C# text.
+      if (!hasUnsupportedRazorText(text, isRazor && !!node.sourceCodeLocation?.startTag)) {
         spans.push({ start: location.startOffset, end: location.endOffset });
       }
     }
@@ -92,6 +118,8 @@ function mayHaveNameFromContent(element: Element, ignoredControl?: Element): boo
     const node = pending.pop()!;
     // A wrapped field's value/options are not text supplied by its label.
     if (node === ignoredControl) continue;
+    // A supported Razor expression remains in text unchanged. Nonblank text
+    // may therefore be a runtime name, not proof that the runtime name is valid.
     if ("value" in node && node.value.trim() !== "") return true;
     if (!("tagName" in node)) continue;
     if (["script", "style", "template"].includes(node.tagName)) continue;
@@ -175,7 +203,8 @@ function formControlMayHaveName(control: Element, nodes: Element[], labels: Elem
 function analyzeSource(source: string, fileUri: string): ScanOutcome {
   // Mask only Razor files. The copy has the original length and line endings,
   // so parser locations and occurrence IDs still refer to the original source.
-  const analysisSource = /\.cshtml(?:[?#]|$)/i.test(fileUri)
+  const isRazor = /\.cshtml(?:[?#]|$)/i.test(fileUri);
+  const analysisSource = isRazor
     ? maskRazorDirectives(source)
     : source;
   let malformed = false;
@@ -187,7 +216,7 @@ function analyzeSource(source: string, fileUri: string): ScanOutcome {
   });
   const nodes = elements(document);
   if (malformed) return { status: "skipped", issues: [], reason: "Malformed HTML prevents reliable analysis." };
-  if (hasUnsupportedRazor(analysisSource, nodes)) return { status: "skipped", issues: [], reason: "Unsupported Razor syntax or literal @ prevents reliable analysis." };
+  if (hasUnsupportedRazor(analysisSource, nodes, isRazor)) return { status: "skipped", issues: [], reason: "Unsupported Razor syntax or ambiguous @ prevents reliable analysis." };
   const labels = nodes.filter((node) => node.tagName === "label");
 
   const issues: AccessibilityIssue[] = [];
