@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type * as VSCode from "vscode";
 import type { ScannerIntegration } from "./types/scannerIntegration";
+import { discoverSupportedFiles, scanRepositoryFiles } from "./repositoryScanning";
 
 export const OPEN_AGENT_UI_COMMAND = "opsAoda.openAgentUI";
 
@@ -246,8 +247,65 @@ export function registerAgentUI(
                 }
 
                 case 'scanRepository': {
-                    await api.commands.executeCommand('opsAoda.scanRepository');
-                    updateWebview();
+                    const folders = api.workspace.workspaceFolders;
+                    if (!folders || folders.length === 0) {
+                        panel?.webview.postMessage({
+                            type: 'REPO_SCAN_RESULTS',
+                            payload: [],
+                            message: 'Open a workspace folder to scan the repository.'
+                        });
+                        break;
+                    }
+
+                    try {
+                        const files = await discoverSupportedFiles(api);
+                        const result = await scanRepositoryFiles(api, files);
+                        const payload: any[] = [];
+
+                        for (const snapshot of result.snapshots) {
+                            if (!snapshot.issues.length) continue;
+                            const uri = api.Uri.parse(snapshot.fileUri);
+                            const doc = await api.workspace.openTextDocument(uri);
+                            const workspaceFolder = api.workspace.getWorkspaceFolder(uri);
+                            const rootName = workspaceFolder?.name ?? 'Workspace';
+                            const relPath = api.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+                            const lastSlash = relPath.lastIndexOf('/');
+                            const folderPath = lastSlash >= 0
+                                ? `${rootName}/${relPath.substring(0, lastSlash)}`
+                                : rootName;
+                            const fileName = lastSlash >= 0 ? relPath.substring(lastSlash + 1) : relPath;
+                            for (const issue of snapshot.issues) {
+                                const range = new api.Range(
+                                    issue.range.startLine,
+                                    issue.range.startCharacter,
+                                    issue.range.endLine,
+                                    issue.range.endCharacter
+                                );
+                                const originalText = doc.getText(range);
+                                const issueCtx = scanner.getIssueContext(issue.id);
+
+                                payload.push({
+                                    issue,
+                                    originalText,
+                                    rule: issueCtx?.rule,
+                                    folderPath,
+                                    fileName
+                                });
+                            }
+                        }
+
+                        panel?.webview.postMessage({
+                            type: 'REPO_SCAN_RESULTS',
+                            payload
+                        });
+                    } catch (err) {
+                        console.error('Repository scan error:', err);
+                        panel?.webview.postMessage({
+                            type: 'REPO_SCAN_RESULTS',
+                            payload: [],
+                            message: 'Error scanning repository.'
+                        });
+                    }
                     break;
                 }
             }

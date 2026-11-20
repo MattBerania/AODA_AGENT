@@ -15,11 +15,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanRepoBtn = document.getElementById('scanRepoBtn');
 
     scanPageBtn.addEventListener('click', () => {
+        scanPageBtn.classList.add('primary');
+        scanRepoBtn.classList.remove('primary');
+        detailChatView.classList.remove('active');
+        errorListView.classList.add('active');
         sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning current page...</em></p>';
         vscode.postMessage({ command: 'scanCurrentPage' });
     });
 
     scanRepoBtn.addEventListener('click', () => {
+        scanRepoBtn.classList.add('primary');
+        scanPageBtn.classList.remove('primary');
         detailChatView.classList.remove('active');
         errorListView.classList.add('active');
         sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning repository...</em></p>';
@@ -70,6 +76,13 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 generateBtn.disabled = false;
                 generateBtn.textContent = 'Failed — Retry';
+            }
+        }
+        else if (message.type === 'REPO_SCAN_RESULTS') {
+            if (message.message) {
+                sidebarContent.innerHTML = `<p style="padding: 15px;">${escapeHTML(message.message)}</p>`;
+            } else {
+                populateRepoSidebar(message.payload);
             }
         }
     });
@@ -143,6 +156,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
             details.appendChild(ul);
             sidebarContent.appendChild(details);
+        }
+    }
+
+    function populateRepoSidebar(repoScanResults) {
+        sidebarContent.innerHTML = '';
+
+        if (!repoScanResults || repoScanResults.length === 0) {
+            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success-green);">Repository analyzed with no confirmed findings.</p>';
+            return;
+        }
+
+        // Category -> Folder -> File -> Issues[]
+        const tree = {};
+        repoScanResults.forEach(ctx => {
+            if (!ctx.issue) return;
+            const cat = ctx.issue.category || 'Other';
+            const folder = ctx.folderPath || 'Root';
+            const file = ctx.fileName || 'Unknown File';
+
+            if (!tree[cat]) tree[cat] = {};
+            if (!tree[cat][folder]) tree[cat][folder] = {};
+            if (!tree[cat][folder][file]) tree[cat][folder][file] = [];
+            tree[cat][folder][file].push(ctx);
+        });
+
+        for (const [category, folders] of Object.entries(tree)) {
+            const catTotal = Object.values(folders).reduce(
+                (sum, files) => sum + Object.values(files).reduce((fSum, list) => fSum + list.length, 0),
+                0
+            );
+
+            const catDetails = document.createElement('details');
+            catDetails.className = 'aoda-accordion';
+            catDetails.open = true;
+
+            const catSummary = document.createElement('summary');
+            catSummary.className = 'repo-summary-row';
+            catSummary.innerHTML = `<span>${escapeHTML(category)}</span><span class="error-badge">${catTotal}</span>`;
+            catDetails.appendChild(catSummary);
+
+            for (const [folderName, files] of Object.entries(folders)) {
+                const folderTotal = Object.values(files).reduce((sum, list) => sum + list.length, 0);
+
+                const folderDetails = document.createElement('details');
+                folderDetails.className = 'repo-folder-accordion';
+                folderDetails.open = true;
+
+                const folderSummary = document.createElement('summary');
+                folderSummary.className = 'repo-folder-summary';
+                folderSummary.innerHTML = `<span>${escapeHTML(folderName)}</span><span class="error-badge">${folderTotal}</span>`;
+                folderDetails.appendChild(folderSummary);
+
+                const fileList = document.createElement('ul');
+                fileList.className = 'repo-file-list';
+
+                for (const [fileName, fileContexts] of Object.entries(files)) {
+                    const li = document.createElement('li');
+                    li.className = 'repo-file-item';
+
+                    const fileLink = document.createElement('span');
+                    fileLink.className = 'repo-file-link';
+                    fileLink.textContent = fileName;
+
+                    const fileBadge = document.createElement('span');
+                    fileBadge.className = 'error-badge';
+                    fileBadge.textContent = fileContexts.length;
+
+                    li.appendChild(fileLink);
+                    li.appendChild(fileBadge);
+                    li.addEventListener('click', () => loadErrorDetails(fileContexts[0]));
+
+                    fileList.appendChild(li);
+                }
+
+                folderDetails.appendChild(fileList);
+                catDetails.appendChild(folderDetails);
+            }
+
+            sidebarContent.appendChild(catDetails);
         }
     }
 

@@ -84,9 +84,10 @@ body {
 details.aoda-accordion {
     margin-bottom: 15px;
 }
-details.aoda-accordion summary {
+details.aoda-accordion > summary {
     cursor: pointer;
     font-weight: 600;
+    font-size: 13px;
     padding: 8px 0;
     color: var(--vscode-textLink-foreground);
     outline: none;
@@ -146,6 +147,56 @@ details.aoda-accordion summary {
 }
 .error-code-link:hover {
     opacity: 0.75;
+}
+/* Repository Scan Hierarchy */
+.repo-summary-row {
+    display: list-item;
+}
+
+.repo-summary-row .error-badge,
+.repo-folder-summary .error-badge {
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.repo-folder-accordion {
+    margin: 4px 0 8px 14px;
+}
+
+details.repo-folder-accordion > summary.repo-folder-summary {
+    display: list-item;
+    cursor: pointer;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground, #b0b0b0);
+    padding: 5px 0;
+    outline: none;
+}
+
+.repo-file-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 8px 16px;
+}
+
+.repo-file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--vscode-foreground);
+}
+
+.repo-file-item:hover {
+    background-color: var(--item-hover);
+}
+
+.repo-file-link {
+    text-decoration: underline;
+    color: var(--vscode-descriptionForeground, #cccccc);
 }
 .ui-toolbar {
     display: flex;

@@ -2,7 +2,7 @@
     ViewData["Title"] = "Appointment Booking";
 }
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -31,7 +31,8 @@
         <label for="appointment-date">Preferred date</label>
         <input id="appointment-date" name="appointment-date" type="date" />
 
-        <input id="reference-number" name="reference-number" type="text" placeholder="Reference number" />
+        <label for="reference-number">Reference number</label>
+        <input id="reference-number" name="reference-number" type="text" />
 
         <label for="appointment-type">Appointment type</label>
         <select id="appointment-type" name="appointment-type">
@@ -45,7 +46,7 @@
 
     <h2>More information</h2>
     <p><a href="/appointments/policy">Appointment policy</a></p>
-    <p><a href="/appointments/contact"></a></p>
+    <p><a href="/appointments/contact">Contact appointment services</a></p>
     <img src="/images/calendar-decoration.png" alt="" width="300" height="80" />
   </main>
 </body>
