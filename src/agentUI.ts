@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type * as VSCode from "vscode";
-import type { ScannerIntegration } from "./types/scannerIntegration";
+import { createFixProposals } from "./fixProposals";
+import type { IssueContext, ScannerIntegration } from "./types/scannerIntegration";
 
 export const OPEN_AGENT_UI_COMMAND = "opsAoda.openAgentUI";
 
@@ -56,12 +57,9 @@ Answer concisely. If they ask for a fix, provide the corrected HTML/Razor code.`
 
 async function generateAiFix(
     api: typeof VSCode,
-    errorContext: any
+    errorContext: IssueContext
 ): Promise<string | null> {
-    const ruleId = errorContext?.issue?.ruleId || "Unknown Rule";
-    const ruleMessage = errorContext?.issue?.message || "";
-    const remediation = errorContext?.rule?.remediation || "";
-    const codeSnippet = errorContext?.originalText || "";
+    const { issue, rule, originalText } = errorContext;
 
     try {
         const [model] = await api.lm.selectChatModels({ vendor: "copilot" });
@@ -72,25 +70,25 @@ async function generateAiFix(
         const messages = [
             api.LanguageModelChatMessage.User(
                 `Fix the following AODA/WCAG accessibility violation.
-Rule: ${ruleId} (${ruleMessage})
-Guidance: ${remediation}
+Rule: ${issue.ruleId} (${issue.message})
+Guidance: ${rule.remediation}
 
 Original code:
-${codeSnippet}
+${originalText}
 
-Return ONLY the corrected HTML/Razor code snippet. Do not include explanations, comments, or markdown code fences.`
+Return only the revised opening tag for the same element. Preserve unrelated attributes and Razor expressions. Do not include a closing tag, surrounding markup, explanations or code fences.`
             ),
         ];
 
         const tokenSource = new api.CancellationTokenSource();
-        const response = await model.sendRequest(messages, {}, tokenSource.token);
-
-        let fullReply = "";
-        for await (const chunk of response.text) {
-            fullReply += chunk;
+        try {
+            const response = await model.sendRequest(messages, {}, tokenSource.token);
+            let fullReply = "";
+            for await (const chunk of response.text) fullReply += chunk;
+            return fullReply.trim().replace(/^```[\w]*\r?\n?/i, "").replace(/\r?\n?```$/i, "").trim();
+        } finally {
+            tokenSource.dispose();
         }
-
-        return fullReply.replace(/^```[\w]*\n?/i, "").replace(/\n?```$/i, "").trim();
     } catch (err) {
         console.error("AI Fix generation error:", err);
         return null;
@@ -131,14 +129,7 @@ export function registerAgentUI(
             return;
         }
 
-        const payload = snapshot.issues.map(issue => {
-            const issueCtx = scanner.getIssueContext(issue.id);
-            return {
-                issue: issueCtx?.issue,
-                originalText: issueCtx?.originalText,
-                rule: issueCtx?.rule,
-            };
-        });
+        const payload = snapshot.issues.map(issue => scanner.getIssueContext(issue.id));
         panel.webview.postMessage({
             type: "SCAN_RESULTS",
             payload,
@@ -172,15 +163,22 @@ export function registerAgentUI(
         html = html.replace('JS/AODA_Agent.js', jsUri.toString());
 
         panel.webview.html = html;
-        panel.onDidDispose(() => { panel = undefined; });
+        const owner = panel;
+        const proposals = createFixProposals(api, scanner, details => generateAiFix(api, details));
+        panel.onDidDispose(() => {
+            proposals.clear();
+            panel = undefined;
+        });
 
         panel.webview.onDidReceiveMessage(async (message) => {
+            if (!message || typeof message !== 'object' || panel !== owner) return;
             switch (message.command) {
                 case 'askChatbot': {
                     const { text, context: errorContext, typingId } = message;
                     const botReply = await handleChatPrompt(api, text, errorContext);
 
-                    panel?.webview.postMessage({
+                    if (panel !== owner) break;
+                    panel.webview.postMessage({
                         type: 'CHAT_RESPONSE',
                         payload: botReply,
                         typingId: typingId
@@ -189,52 +187,26 @@ export function registerAgentUI(
                 }
 
                 case 'generateFix': {
-                    const { context: fixContext } = message;
-                    const aiFix = await generateAiFix(api, fixContext);
+                    const { issueId, documentVersion, requestId } = message;
+                    const result = await proposals.generate(issueId, documentVersion);
+                    if (result && panel === owner) {
+                        void owner.webview.postMessage({ type: 'FIX_RESPONSE', issueId, requestId, ...result });
+                    }
+                    break;
+                }
 
-                    panel?.webview.postMessage({
-                        type: 'FIX_RESPONSE',
-                        payload: aiFix,
-                        issueId: fixContext?.issue?.id
-                    });
+                case 'dismissFix': {
+                    proposals.clear();
                     break;
                 }
 
                 case 'applyFix': {
-                    const { fixCode, context: fixContext } = message;
-                    const issue = fixContext?.issue;
-
-                    if (!issue?.fileUri || !issue?.range || typeof fixCode !== 'string') {
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
-                        break;
-                    }
-
-                    try {
-                        const uri = api.Uri.parse(issue.fileUri);
-                        const document = await api.workspace.openTextDocument(uri);
-                        const range = new api.Range(
-                            issue.range.startLine,
-                            issue.range.startCharacter,
-                            issue.range.endLine,
-                            issue.range.endCharacter
-                        );
-
-                        // Match the indentation of the original line for multi-line fixes
-                        const lineText = document.lineAt(issue.range.startLine).text;
-                        const indent = lineText.match(/^\s*/)?.[0] ?? '';
-                        const indentedFix = fixCode
-                            .split('\n')
-                            .map((line: string, i: number) => (i === 0 ? line : indent + line))
-                            .join('\n');
-
-                        const edit = new api.WorkspaceEdit();
-                        edit.replace(uri, range, indentedFix);
-                        const success = await api.workspace.applyEdit(edit);
-
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success });
-                    } catch (err) {
-                        console.error('Error applying fix:', err);
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
+                    const { proposalId } = message;
+                    const result = Object.keys(message).every(key => key === 'command' || key === 'proposalId')
+                        ? await proposals.approve(proposalId)
+                        : { status: 'rejected', message: 'Approval must contain only the proposal identifier.' };
+                    if (panel === owner) {
+                        void owner.webview.postMessage({ type: 'FIX_RESULT', proposalId, ...result });
                     }
                     break;
                 }
@@ -276,12 +248,6 @@ export function registerAgentUI(
         const issueCtx = scanner.getIssueContext(matchedIssue.id);
         if (!issueCtx) return;
 
-        const payload = {
-            issue: issueCtx.issue,
-            originalText: issueCtx.originalText,
-            rule: issueCtx.rule,
-        };
-
         const wasClosed = !panel;
         if (wasClosed) {
             await api.commands.executeCommand(OPEN_AGENT_UI_COMMAND);
@@ -292,7 +258,7 @@ export function registerAgentUI(
         setTimeout(() => {
             panel?.webview.postMessage({
                 type: "SELECT_ISSUE",
-                payload,
+                payload: issueCtx,
             });
         }, wasClosed ? 350 : 0);
     });

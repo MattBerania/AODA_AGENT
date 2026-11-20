@@ -29,18 +29,18 @@ export function registerCurrentPageScanning(
   let disposed = false;
   let scanningCurrentPage = false;
 
-  function scanDocument(document: VSCode.TextDocument, notify: boolean): AccessibilityIssue[] {
-    if (disposed) return [];
-    if (!workspaceResults) results.clear();
-    latestScan = undefined;
+  function scanDocument(document: VSCode.TextDocument, notify: boolean, publishCurrent = true): ScanSnapshot {
+    if (publishCurrent && !workspaceResults) results.clear();
     scanningCurrentPage = true;
     try {
       const outcome = scanAccessibilityOutcome(document.getText(), document.uri.toString());
       if (outcome.status === "failed") throw new Error(outcome.reason);
-      const issues = [...outcome.issues];
+      const issues = outcome.issues;
       const snapshot = results.set(document, outcome);
-      latestScan = snapshot;
-      changes.fire(snapshot);
+      if (publishCurrent) {
+        latestScan = snapshot;
+        changes.fire(snapshot);
+      }
       if (notify) {
         const message = outcome.status === "skipped"
           ? `OPS AODA skipped this page. ${outcome.reason}`
@@ -49,14 +49,17 @@ export function registerCurrentPageScanning(
           : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See AODA Agent UI for details.`;
         void api.window.showInformationMessage(message);
       }
-      return issues;
+      return snapshot;
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unexpected scanner error.";
       results.remove(document.uri.toString());
-      latestScan = results.set(document, { status: "failed", issues: [], reason: detail });
-      changes.fire(latestScan);
-      void api.window.showErrorMessage(`OPS AODA could not scan the current page: ${detail}`);
-      return [];
+      const snapshot = results.set(document, { status: "failed", issues: [], reason: detail });
+      if (publishCurrent) {
+        latestScan = snapshot;
+        changes.fire(snapshot);
+      }
+      void api.window.showErrorMessage(`OPS AODA could not scan ${document.uri.toString()}: ${detail}`);
+      return snapshot;
     } finally {
       scanningCurrentPage = false;
     }
@@ -103,9 +106,9 @@ export function registerCurrentPageScanning(
       return [];
     }
 
-    const issues = scanDocument(document, true);
+    const { issues } = scanDocument(document, true);
     void api.commands.executeCommand(OPEN_AGENT_UI_COMMAND);
-    return issues;
+    return [...issues];
   });
 
   context.subscriptions.push(results.onDidChange((fileUri) => {
@@ -154,8 +157,12 @@ export function registerCurrentPageScanning(
       cancelPendingScan();
       const document = api.window.activeTextEditor?.document;
       if (disposed || !isSupportedDocument(document)) return undefined;
-      scanDocument(document, false);
-      return latestScan;
+      return scanDocument(document, false);
+    },
+    refreshDocument(document) {
+      if (disposed || !isSupportedDocument(document)) return undefined;
+      if (scheduledDocument === document) cancelPendingScan();
+      return scanDocument(document, false, api.window.activeTextEditor?.document === document);
     },
   };
 }

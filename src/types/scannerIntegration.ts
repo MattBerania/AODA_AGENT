@@ -1,4 +1,4 @@
-import type { Event } from "vscode";
+import type { Event, TextDocument } from "vscode";
 import type { AccessibilityIssue, AccessibilityRule, ScanOutcome } from "./accessibility";
 
 /** The latest scan, tied to the editor buffer version it analyzed. */
@@ -22,4 +22,6 @@ export interface ScannerIntegration {
   getIssueContext(issueId: string): IssueContext | undefined;
   /** Immediately refresh the active supported page, for example after an approved edit. */
   refreshCurrentPage(): ScanSnapshot | undefined;
+  /** Rescan this buffer, preserving another active page and its pending scan. */
+  refreshDocument(document: TextDocument): ScanSnapshot | undefined;
 }

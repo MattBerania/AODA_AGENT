@@ -114,17 +114,10 @@ and cancels pending work.
 
 Automatic scans update Problems and subscribers without success notifications.
 The manual command still scans immediately and shows its result summary. It
-cancels pending automatic work to avoid duplicate scans. After a consuming
-component successfully applies an approved edit to the active page, it can call:
-
-```typescript
-const snapshot = scanner.refreshCurrentPage();
-```
-
-This synchronous API returns the refreshed snapshot or `undefined` when scanning
-fails or the active document is unsupported. It also cancels any queued scan.
-Applying and approving edits remains the responsibility of the consuming component.
-The scanner retains its documented Razor and malformed-markup coverage limits.
+cancels pending automatic work to avoid duplicate scans. After an approved edit,
+the extension calls `scanner.refreshDocument(targetDocument)`. This scans the
+edited buffer even if the developer has switched editors. A pending automatic
+scan of another file keeps its original timer.
 
 Tests use Node's simulated timers to verify the debounce delay, timer resets,
 file switches, disposal, source ranges and immediate post-edit refresh.
@@ -144,6 +137,7 @@ The integration API returned by `activate()` exposes:
 | `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on invalidation/failure |
 | `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original opening-tag text and document version |
 | `refreshCurrentPage()` | Immediately refresh the supported active document and return its snapshot |
+| `refreshDocument(document)` | Scan a specific open buffer and return its snapshot, including skipped or failed outcomes |
 
 A snapshot contains the serialized file URI, document version and read-only
 issues. Snapshots and nested metadata are copied and frozen so consumers cannot
@@ -184,10 +178,17 @@ details. Subscribers should compare the captured `documentVersion` and source
 before preparing any future edit. Findings always carry the version of the
 source that produced them.
 
-The standalone prototype sidebar and future Copilot code can use this contract
-when those components are integrated. Applying proposed fixes remains a separate
-task. Empty scan results retain the documented
-coverage ambiguity between no confirmed findings and skipped markup.
+In **AODA Agent UI**, selecting a finding requests a GitHub Copilot proposal.
+Review the target URI, line, original opening tag and suggested replacement.
+**Apply fix** approves that proposal once. Reopening a finding requests a new
+proposal. If Copilot cannot return a changed opening tag for the same element,
+the panel explains the problem and offers no edit.
+
+**Verified** means the target buffer matched the approved edit and a fresh scan
+no longer reported that finding at its location. **Applied** means the buffer
+matched, with the scan outcome shown separately. **Unverified** means VS Code
+accepted the edit but the buffer could not be confirmed. A rejected approval
+or failed edit requires a fresh proposal before retrying.
 
 Manual verification in the Extension Development Host:
 
@@ -405,9 +406,8 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. The explicit current-page command displays diagnostics in
-Problems and refreshes the active supported document after edits. Repository
-scanning, Copilot integration and fixes remain separate tasks. All six approved detectors have focused tests for
-their documented subsets.
+Problems and refreshes the active supported document after edits. All six
+approved detectors have focused tests for their documented subsets.
 
 ## Next increments
 
