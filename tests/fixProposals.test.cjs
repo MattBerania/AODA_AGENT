@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { join } = require('node:path');
 const { registerAgentUI, OPEN_AGENT_UI_COMMAND } = require('../dist/agentUI.js');
 const { SCAN_DEBOUNCE_MS } = require('../dist/currentPageScanning.js');
+const { registerRepositoryScanning } = require('../dist/repositoryScanning.js');
 const { makeDocument, makeHost } = require('./helpers/scanHost.cjs');
 
 // Exercise the registered webview message handlers, scanner, and scan store.
@@ -296,6 +297,40 @@ test('Agent displays structural findings while contrast stays in the scan and Pr
   }
   assert.deepEqual(host.messages.filter(message => message.type === 'SELECT_ISSUE')
     .map(message => message.payload.issue.ruleId), ['image-text-alternative']);
+});
+
+test('repository sidebar uses shared findings and versioned proposals from another file', async t => {
+  const host = setup(t);
+  const background = makeDocument('<p style="color:#aaa; background-color:#fff">Notice</p><img>',
+    'file:///demo/views/notice.html');
+  background.version = 4;
+  const { api, context, commands, results } = host;
+  api.workspace.workspaceFolders = [{ name: 'demo' }];
+  api.workspace.findFiles = async () => [background.uri];
+  api.workspace.getWorkspaceFolder = () => api.workspace.workspaceFolders[0];
+  api.workspace.asRelativePath = () => 'views/notice.html';
+  api.workspace.openTextDocument = async () => background;
+  api.commands.executeCommand = async (command, ...args) => commands.get(command)(...args);
+  registerRepositoryScanning(api, context, results);
+
+  const sidebar = await host.send({ command: 'scanRepository' });
+  assert.equal(sidebar.type, 'REPO_SCAN_RESULTS');
+  assert.equal(sidebar.payload.length, 1);
+  const [entry] = sidebar.payload;
+  assert.equal(entry.issue.ruleId, 'image-text-alternative');
+  assert.equal(entry.documentVersion, background.version);
+  assert.equal(entry.originalText, '<img>');
+  assert.equal(entry.folderPath, 'demo/views');
+  assert.equal(entry.fileName, 'notice.html');
+  assert.deepEqual(results.getSnapshot(background.uri.toString()).issues.map(issue => issue.ruleId),
+    ['inline-text-contrast', 'image-text-alternative']);
+  t.mock.timers.tick(300);
+  assert.equal(host.messages.at(-1), sidebar);
+
+  const review = await host.generate('repository-review', {
+    issueId: entry.issue.id, documentVersion: entry.documentVersion,
+  });
+  assert.equal(review.status, 'ready');
 });
 
 test('webview reviews the current reply and sends only the reviewed ID on Apply', async t => {

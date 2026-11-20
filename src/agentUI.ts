@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type * as VSCode from "vscode";
 import { INLINE_TEXT_CONTRAST_RULE_ID } from "./accessibility/rules";
 import { createFixProposals } from "./fixProposals";
+import { SCAN_REPOSITORY_COMMAND, type RepositoryScanResult } from "./repositoryScanning";
+import type { AccessibilityIssue } from "./types/accessibility";
 import type { IssueContext, ScannerIntegration } from "./types/scannerIntegration";
 
 export const OPEN_AGENT_UI_COMMAND = "opsAoda.openAgentUI";
@@ -96,7 +98,11 @@ Return only the revised opening tag for the same element. Preserve unrelated att
     }
 }
 
-function isPositionInIssue(position: VSCode.Position, issue: any): boolean {
+function isAgentIssue(issue: AccessibilityIssue): boolean {
+    return issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID;
+}
+
+function isPositionInIssue(position: VSCode.Position, issue: AccessibilityIssue): boolean {
     const range = issue?.range;
     if (!range) return false;
 
@@ -116,9 +122,10 @@ export function registerAgentUI(
     scanner: ScannerIntegration,
 ): void {
     let panel: VSCode.WebviewPanel | undefined;
+    let showRepository = false;
 
     function updateWebview() {
-        if (!panel) {
+        if (!panel || showRepository) {
             return;
         }
         const snapshot = scanner.getLatestScan();
@@ -131,7 +138,7 @@ export function registerAgentUI(
         }
 
         const payload = snapshot.issues
-            .filter(issue => issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID)
+            .filter(isAgentIssue)
             .map(issue => scanner.getIssueContext(issue.id));
         panel.webview.postMessage({
             type: "SCAN_RESULTS",
@@ -142,6 +149,7 @@ export function registerAgentUI(
     }
 
     const command = api.commands.registerCommand(OPEN_AGENT_UI_COMMAND, () => {
+        showRepository = false;
         if (panel) {
             panel.reveal(api.ViewColumn.Beside, true);
             setTimeout(() => { updateWebview(); }, 250);
@@ -167,6 +175,7 @@ export function registerAgentUI(
 
         panel.webview.html = html;
         const owner = panel;
+        let repositoryScanRunning = false;
         const proposals = createFixProposals(api, scanner, details => generateAiFix(api, details));
         panel.onDidDispose(() => {
             proposals.clear();
@@ -215,14 +224,57 @@ export function registerAgentUI(
                 }
 
                 case 'scanCurrentPage': {
+                    showRepository = false;
                     await api.commands.executeCommand('opsAoda.scanCurrentPage');
                     updateWebview();
                     break;
                 }
 
                 case 'scanRepository': {
-                    await api.commands.executeCommand('opsAoda.scanRepository');
-                    updateWebview();
+                    showRepository = true;
+                    if (repositoryScanRunning) break;
+                    repositoryScanRunning = true;
+                    try {
+                        const result = await api.commands.executeCommand<RepositoryScanResult | undefined>(
+                            SCAN_REPOSITORY_COMMAND);
+                        if (panel !== owner || !showRepository) break;
+                        if (!result) {
+                            void owner.webview.postMessage({
+                                type: 'REPO_SCAN_RESULTS',
+                                message: 'Repository scan unavailable. See VS Code notifications for details.',
+                            });
+                            break;
+                        }
+
+                        const payload: (IssueContext & { folderPath: string; fileName: string })[] = [];
+                        for (const snapshot of result.snapshots) {
+                            const issues = snapshot.issues.filter(isAgentIssue);
+                            if (!issues.length) continue;
+                            const uri = api.Uri.parse(snapshot.fileUri);
+                            const rootName = api.workspace.getWorkspaceFolder(uri)?.name ?? 'Workspace';
+                            const relPath = api.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+                            const lastSlash = relPath.lastIndexOf('/');
+                            const folderPath = lastSlash >= 0 ? `${rootName}/${relPath.slice(0, lastSlash)}` : rootName;
+                            const fileName = relPath.slice(lastSlash + 1);
+                            for (const issue of issues) {
+                                const details = scanner.getIssueContext(issue.id);
+                                if (details?.documentVersion === snapshot.documentVersion) {
+                                    payload.push({ ...details, folderPath, fileName });
+                                }
+                            }
+                        }
+                        void owner.webview.postMessage({ type: 'REPO_SCAN_RESULTS', payload });
+                    } catch (error) {
+                        console.error('Repository scan error:', error);
+                        if (panel === owner && showRepository) {
+                            void owner.webview.postMessage({
+                                type: 'REPO_SCAN_RESULTS',
+                                message: 'Error scanning repository.',
+                            });
+                        }
+                    } finally {
+                        repositoryScanRunning = false;
+                    }
                     break;
                 }
             }
@@ -246,7 +298,7 @@ export function registerAgentUI(
         if (!clickedPos) return;
 
         const matchedIssue = snapshot.issues.find(issue =>
-            issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID && isPositionInIssue(clickedPos, issue));
+            isAgentIssue(issue) && isPositionInIssue(clickedPos, issue));
         if (!matchedIssue) return;
 
         const issueCtx = scanner.getIssueContext(matchedIssue.id);

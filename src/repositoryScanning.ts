@@ -77,7 +77,7 @@ export function registerRepositoryScanning(
   let previousFiles = new Set<string>();
   const command = api.commands.registerCommand(
     SCAN_REPOSITORY_COMMAND,
-    async (): Promise<void> => {
+    async (): Promise<RepositoryScanResult | undefined> => {
       if (running) {
         await api.window.showInformationMessage("A repository scan is already running.");
         return;
@@ -115,6 +115,7 @@ export function registerRepositoryScanning(
               `${entry.fileUri}: ${entry.reason}`).join("\n"),
           );
         }
+        return result;
       } catch (error) {
         const detail = error instanceof Error
           ? error.message
