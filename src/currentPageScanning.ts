@@ -46,7 +46,7 @@ export function registerCurrentPageScanning(
           ? `OPS AODA skipped this page. ${outcome.reason}`
           : issues.length === 0
           ? "Analyzed with no confirmed findings from the implemented checks."
-          : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See AODA Agent UI for details.`;
+          : `OPS AODA found ${issues.length} accessibility ${issues.length === 1 ? "finding" : "findings"}. See Problems for details.`;
         void api.window.showInformationMessage(message);
       }
       return snapshot;

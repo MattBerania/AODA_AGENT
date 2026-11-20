@@ -18,7 +18,9 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
   const edits = [];
   let receive;
   let dispose;
+  const selections = new api.EventEmitter();
   const panel = {
+    reveal() {},
     webview: {
       asWebviewUri: uri => uri,
       postMessage: msg => { messages.push(msg); },
@@ -27,7 +29,8 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
     onDidDispose: listener => { dispose = listener; },
   };
   api.window.createWebviewPanel = () => panel;
-  api.window.onDidChangeTextEditorSelection = new api.EventEmitter().event;
+  api.window.onDidChangeTextEditorSelection = selections.event;
+  api.TextEditorSelectionChangeKind = { Mouse: 2 };
   api.Uri.file = path => ({ toString: () => path });
   api.ViewColumn = { Beside: 2 };
   api.workspace.openTextDocument = async () => document;
@@ -62,7 +65,8 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
     command: 'generateFix', issueId: issue.id, documentVersion: 1, requestId, ...extra,
   });
   const approve = (proposalId, extra = {}) => send({ command: 'applyFix', proposalId, ...extra });
-  return { ...host, document, issue, requests, messages, edits, send, generate, approve, dispose: () => dispose() };
+  return { ...host, document, issue, requests, messages, edits, send, generate, approve, selections,
+    dispose: () => dispose() };
 }
 
 test('review and apply exactly the host proposal, including CRLF and UTF-16 offsets', async t => {
@@ -269,6 +273,29 @@ test('inline contrast publishes a foreground-token warning for manual review', a
   assert.match(result.message, /manual review/);
   assert.equal(host.requests.length, 0);
   assert.equal(host.edits.length, 0);
+});
+
+test('Agent displays structural findings while contrast stays in the scan and Problems', t => {
+  const host = setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p><img>',
+    undefined, 'file:///demo/contrast.html');
+  const issues = host.integration.getLatestScan().issues;
+  assert.deepEqual(issues.map(issue => issue.ruleId), ['inline-text-contrast', 'image-text-alternative']);
+  assert.equal(host.collection.entries.get(host.document.uri).length, 2);
+
+  t.mock.timers.tick(300);
+  const sidebar = host.messages.find(message => message.type === 'SCAN_RESULTS');
+  assert.deepEqual(sidebar.payload.map(context => context.issue.ruleId), ['image-text-alternative']);
+
+  for (const issue of issues) {
+    host.selections.fire({
+      kind: host.api.TextEditorSelectionChangeKind.Mouse,
+      textEditor: host.api.window.activeTextEditor,
+      selections: [{ active: { line: issue.range.startLine, character: issue.range.startCharacter } }],
+    });
+    t.mock.timers.tick(1);
+  }
+  assert.deepEqual(host.messages.filter(message => message.type === 'SELECT_ISSUE')
+    .map(message => message.payload.issue.ruleId), ['image-text-alternative']);
 });
 
 test('webview reviews the current reply and sends only the reviewed ID on Apply', async t => {

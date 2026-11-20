@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const categories = {};
         
         if (!liveScanResults || liveScanResults.length === 0) {
-            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success);">Analyzed with no confirmed findings from the implemented checks.</p>';
+            sidebarContent.textContent = 'No findings to display in the Agent.';
             return;
         }
 
@@ -173,11 +173,6 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         const codeDiff = document.querySelector('.code-diff-viewer');
-        if (context.issue.ruleId === 'inline-text-contrast') {
-            codeDiff.textContent = '';
-            vscode.postMessage({ command: 'dismissFix' });
-            return;
-        }
         codeDiff.innerHTML = "<em>Generating AI code suggestion...</em>";
 
         vscode.postMessage({

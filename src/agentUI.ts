@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type * as VSCode from "vscode";
+import { INLINE_TEXT_CONTRAST_RULE_ID } from "./accessibility/rules";
 import { createFixProposals } from "./fixProposals";
 import type { IssueContext, ScannerIntegration } from "./types/scannerIntegration";
 
@@ -129,7 +130,9 @@ export function registerAgentUI(
             return;
         }
 
-        const payload = snapshot.issues.map(issue => scanner.getIssueContext(issue.id));
+        const payload = snapshot.issues
+            .filter(issue => issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID)
+            .map(issue => scanner.getIssueContext(issue.id));
         panel.webview.postMessage({
             type: "SCAN_RESULTS",
             payload,
@@ -242,7 +245,8 @@ export function registerAgentUI(
         const clickedPos = event.selections[0]?.active;
         if (!clickedPos) return;
 
-        const matchedIssue = snapshot.issues.find((issue) => isPositionInIssue(clickedPos, issue));
+        const matchedIssue = snapshot.issues.find(issue =>
+            issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID && isPositionInIssue(clickedPos, issue));
         if (!matchedIssue) return;
 
         const issueCtx = scanner.getIssueContext(matchedIssue.id);

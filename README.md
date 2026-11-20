@@ -227,7 +227,7 @@ ratio for the threshold. Review the rendered colours and text size before
 assessing WCAG 1.4.3. Normal text generally requires 4.5:1, and large text
 generally requires 3:1. [W3C guidance on Contrast (Minimum)](https://www.w3.org/WAI/WCAG20/Understanding/contrast-minimum.html)
 
-Contrast warnings are for manual review in the Agent UI.
+Review contrast warnings in VS Code Problems after a current-page or repository scan.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
 `aria-labelledby`, and `title` are also recognized. Referenced IDs and alternative
