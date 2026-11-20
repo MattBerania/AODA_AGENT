@@ -37,7 +37,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/scanner.test.cjs tests/currentPageScanning.test.cjs tests/repositoryScanning.test.cjs tests/scanResults.test.cjs tests/fixProposals.test.cjs"
+    "test": "npm run build && node --test tests/scanner.test.cjs tests/inlineContrast.test.cjs tests/currentPageScanning.test.cjs tests/repositoryScanning.test.cjs tests/scanResults.test.cjs tests/fixProposals.test.cjs"
   },
   "repository": {
     "type": "git",

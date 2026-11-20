@@ -1,9 +1,9 @@
 # OPS AODA Agent
 
 VS Code extension with an independent TypeScript source scanner. The scanner
-implements the six approved rules **`image-text-alternative`,
+implements six structural rules **`image-text-alternative`,
 `button-name`, `link-name`, `document-language`, `iframe-name`, and
-`form-control-name`** within the source-analysis limits below.
+`form-control-name`** and an **`inline-text-contrast`** review check for HTML.
 
 ## Run and verify
 
@@ -20,7 +20,7 @@ cover editor-buffer reads, document URIs, diagnostic ranges and error handling.
 The Extension Development Host is a separate manual check.
 
 `tests/fixtures/` contains synthetic full-page HTML examples and a Razor view.
-The fixture tests exercise all six rules together, check that reported ranges
+The fixture tests exercise all six structural rules together, check that reported ranges
 select the expected original tags, and verify repeated calls with changed source
 clear resolved findings. Production legacy ASP.NET files still need validation.
 
@@ -125,7 +125,7 @@ file switches, disposal, source ranges and immediate post-edit refresh.
 ## Scanner-side integration
 
 After running **OPS AODA: Scan Current Page**, run **OPS AODA: Show Scan Issues**
-from the Command Palette. Choose a finding to select its opening tag and display
+from the Command Palette. Choose a finding to select its source range and display
 the catalog description, remediation guidance, source snippet and scan-time
 document version in the **OPS AODA Issues** Output channel.
 
@@ -135,7 +135,7 @@ The integration API returned by `activate()` exposes:
 | --- | --- |
 | `getLatestScan()` | Latest snapshot, or `undefined` before a scan or after invalidation/failure |
 | `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on invalidation/failure |
-| `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original opening-tag text and document version |
+| `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original source text and document version |
 | `refreshCurrentPage()` | Immediately refresh the supported active document and return its snapshot |
 | `refreshDocument(document)` | Scan a specific open buffer and return its snapshot, including skipped or failed outcomes |
 
@@ -178,7 +178,7 @@ details. Subscribers should compare the captured `documentVersion` and source
 before preparing any future edit. Findings always carry the version of the
 source that produced them.
 
-In **AODA Agent UI**, selecting a finding requests a GitHub Copilot proposal.
+In **AODA Agent UI**, selecting a structural finding requests a GitHub Copilot proposal.
 Review the target URI, line, original opening tag and suggested replacement.
 **Apply fix** approves that proposal once. Reopening a finding requests a new
 proposal. If Copilot cannot return a changed opening tag for the same element,
@@ -211,6 +211,23 @@ controls and automatic refresh still need their manual host check.
 3. Safety gates exclude malformed HTML and unsupported Razor syntax.
 4. Supported native HTML elements are inspected once per rule and source position.
 5. Findings copy metadata from the existing rule catalog via `getRule`.
+
+### Inline text contrast
+
+The scanner reviews ordinary direct text in HTML paragraphs with a quoted
+inline style containing one `color` and one `background-color` declaration.
+Values must be opaque `#rgb` or `#rrggbb`. It skips styles with additional or
+duplicate declarations, nested markup, styled ancestors, and documents with
+detectable stylesheets. HTML `<style>` blocks containing at-rules still allow
+the structural checks to run.
+
+For a declared pair below 3:1, the scanner highlights the foreground token and
+reports both colours and their ratio as a review warning. It uses the unrounded
+ratio for the threshold. Review the rendered colours and text size before
+assessing WCAG 1.4.3. Normal text generally requires 4.5:1, and large text
+generally requires 3:1. [W3C guidance on Contrast (Minimum)](https://www.w3.org/WAI/WCAG20/Understanding/contrast-minimum.html)
+
+Contrast warnings are for manual review in the Agent UI.
 
 Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
 `aria-labelledby`, and `title` are also recognized. Referenced IDs and alternative
@@ -406,8 +423,8 @@ wording; a future richer scan result could expose coverage information.
 
 These are partial automated checks. An empty result does **not** establish WCAG
 or AODA compliance. The explicit current-page command displays diagnostics in
-Problems and refreshes the active supported document after edits. All six
-approved detectors have focused tests for their documented subsets.
+Problems and refreshes the active supported document after edits. The structural
+rules and inline contrast check have focused tests for their documented subsets.
 
 ## Next increments
 

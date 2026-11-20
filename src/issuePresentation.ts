@@ -63,7 +63,7 @@ export function registerIssuePresentation(
       return;
     }
     if (snapshot.issues.length === 0) {
-      void api.window.showInformationMessage("The page was analyzed with no confirmed findings from the six implemented checks.");
+      void api.window.showInformationMessage("The page was analyzed with no confirmed findings from the implemented checks.");
       return;
     }
     try {

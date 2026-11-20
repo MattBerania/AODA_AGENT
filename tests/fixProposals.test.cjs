@@ -7,9 +7,9 @@ const { makeDocument, makeHost } = require('./helpers/scanHost.cjs');
 
 // Exercise the registered webview message handlers, scanner, and scan store.
 // Only VS Code's document/edit APIs, panel transport and Copilot are simulated.
-function setup(t, source = '<img>', suggestion = '<img alt="Office">') {
+function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const document = makeDocument(source);
+  const document = makeDocument(source, fileUri);
   const host = makeHost(document, true);
   const { api, context } = host;
   const [issue] = host.run();
@@ -255,6 +255,20 @@ test('a scan result for the wrong URI cannot supply a host proposal context', t 
   assert.throws(() => host.results.set(other, [host.issue]), /URI does not match/);
   assert.equal(host.results.getSnapshot(other.uri.toString()), undefined);
   assert.equal(host.results.getIssueContext(host.issue.id).issue.fileUri, host.document.uri.toString());
+});
+
+test('inline contrast publishes a foreground-token warning for manual review', async t => {
+  const host = setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p>', undefined,
+    'file:///demo/contrast.html');
+  const [diagnostic] = host.collection.entries.get(host.document.uri);
+  assert.equal(diagnostic.severity, host.api.DiagnosticSeverity.Warning);
+  assert.equal(host.document.getText(diagnostic.range), '#aaa');
+  assert.equal(host.integration.getIssueContext(host.issue.id).originalText, '#aaa');
+  const result = await host.generate();
+  assert.equal(result.status, 'rejected');
+  assert.match(result.message, /manual review/);
+  assert.equal(host.requests.length, 0);
+  assert.equal(host.edits.length, 0);
 });
 
 test('webview reviews the current reply and sends only the reviewed ID on Apply', async t => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 import type * as VSCode from "vscode";
+import { INLINE_TEXT_CONTRAST_RULE_ID } from "./accessibility/rules";
 import type { ProposedFix, SourceRange } from "./types/accessibility";
 import type { IssueContext, ScannerIntegration } from "./types/scannerIntegration";
 
@@ -28,7 +29,7 @@ function sourceMatches(document: VSCode.TextDocument, fileUri: string, version: 
     !!range && original.length > 0 && document.getText(range) === original;
 }
 
-// All six detectors highlight opening tags. A whole element, prose, or extra
+// Fixable structural findings highlight opening tags. A whole element, prose, or extra
 // sibling from Copilot cannot safely replace that range.
 function isOpeningTagReplacement(original: string, replacement: string): boolean {
   const tag = /^<([a-z][\w-]*)/i.exec(original)?.[1]?.toLowerCase();
@@ -68,6 +69,9 @@ export function createFixProposals(api: typeof VSCode, scanner: ScannerIntegrati
     const context = typeof issueId === "string" ? scanner.getIssueContext(issueId) : undefined;
     if (!context || context.documentVersion !== version) {
       return { status: "rejected", message: "The selected finding is outdated. Select it from a fresh scan." };
+    }
+    if (context.issue.ruleId === INLINE_TEXT_CONTRAST_RULE_ID) {
+      return { status: "rejected", message: "Inline contrast findings are for manual review." };
     }
     const { issue, documentVersion, originalText } = context;
     const stale = { status: "rejected", message: "The source changed. Review a fresh scan." } as const;
