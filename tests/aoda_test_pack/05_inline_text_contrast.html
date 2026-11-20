@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inline Text Contrast Test</title>
+</head>
+<body>
+  <main>
+    <h1>Inline text contrast test</h1>
+    <p>Scan this file in VS Code. Expect four inline contrast warnings.</p>
+    <!-- Keep this fixture free of stylesheets so the inline check runs. -->
+
+    <h2>Expected warnings</h2>
+    <h3>Low contrast at 2.32:1</h3>
+    <p style="color: #aaaaaa; background-color: #ffffff;">Your request has been received.</p>
+
+    <h3>Three-digit HEX with reversed declarations and colours</h3>
+    <p style='background-color: #aaa; color: #fff;'>Your appointment is confirmed.</p>
+
+    <h3>Identical colours at 1:1</h3>
+    <p style="color: #333; background-color: #333;">Your confirmation number is 1042.</p>
+
+    <h3>Just under 3:1 before rounding</h3>
+    <p style="background-color: #fff;
+              color: #959595;">Changes are saved automatically.</p>
+
+    <h2>Expected to produce no warning</h2>
+    <h3>Supported colours at 4.54:1</h3>
+    <p style="color: #767676; background-color: #fff;">Your request history is available.</p>
+
+    <h3>Between the scanner cutoff and the normal-text minimum</h3>
+    <p style="color: #949494; background-color: #fff;">Review normal-size text before declaring it compliant.</p>
+
+    <h3>Duplicate foreground declarations</h3>
+    <p style="color: #aaa; color: #bbb; background-color: #fff;">This pair is outside the scanner's supported scope.</p>
+
+    <h3>Missing background declaration</h3>
+    <p style="color: #aaa;">This pair needs an explicit background colour.</p>
+  </main>
+</body>
+</html>

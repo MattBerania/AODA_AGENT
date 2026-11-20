@@ -1,10 +1,12 @@
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 import type { AccessibilityIssue, ScanOutcome } from "../types/accessibility";
-import { getRule } from "./rules";
+import { readInlineContrast } from "./inlineContrast";
+import { getRule, INLINE_TEXT_CONTRAST_RULE_ID } from "./rules";
 import { hasUnsupportedRazorText, maskRazorDirectives } from "./razor";
 
 type Node = DefaultTreeAdapterMap["node"];
 type Element = DefaultTreeAdapterMap["element"];
+const htmlNamespace = "http://www.w3.org/1999/xhtml";
 
 /** Collect source-backed elements; template contents are inert and excluded. */
 function elements(root: Node): Element[] {
@@ -25,7 +27,7 @@ function elements(root: Node): Element[] {
  * expressions, email literals in markup, and (in Razor files) dotted Model text.
  * Other @ occurrences still skip the file. Accepted spans never change parsing.
  */
-function hasUnsupportedRazor(source: string, nodes: Element[], isRazor: boolean): boolean {
+function hasUnsupportedRazor(source: string, nodes: Element[], isRazor: boolean, isHtml: boolean): boolean {
   if (!source.includes("@")) return false;
   const spans: { start: number; end: number }[] = [];
   for (const node of nodes) {
@@ -39,6 +41,13 @@ function hasUnsupportedRazor(source: string, nodes: Element[], isRazor: boolean)
           spans.push({ start: location.startOffset, end: location.endOffset });
         }
       }
+    }
+    // HTML style blocks can contain CSS at-rules. Their contents are opaque to
+    // the structural checks. Razor style blocks retain the existing safety gate.
+    const { startTag, endTag } = node.sourceCodeLocation ?? {};
+    if (isHtml && node.namespaceURI === htmlNamespace && node.tagName === "style" && startTag && endTag) {
+      spans.push({ start: startTag.endOffset, end: endTag.startOffset });
+      continue;
     }
     // Never classify C#, JavaScript, CSS, inert markup or foreign content as
     // ordinary markup text, even when it happens to contain an email/property.
@@ -70,6 +79,39 @@ function hasUnsupportedRazor(source: string, nodes: Element[], isRazor: boolean)
     end = span.end;
   }
   return source.slice(end).includes("@");
+}
+
+function hasStylesheet(node: Element): boolean {
+  return node.tagName === "style" || (node.tagName === "link" && node.attrs.some(({ name, value }) =>
+    name === "rel" && value.toLowerCase().split(/[\t\r\n\f ]+/).includes("stylesheet")));
+}
+
+function findInlineContrast(source: string, paragraph: Element) {
+  const style = paragraph.sourceCodeLocation?.attrs?.style;
+  if (!style || paragraph.childNodes.some(child => "tagName" in child) ||
+      !paragraph.childNodes.some(child => "value" in child && child.value.trim() !== "")) return;
+
+  // Ancestor styling can affect visibility or compositing. Leave it for review.
+  for (let parent = paragraph.parentNode; parent && "tagName" in parent; parent = parent.parentNode) {
+    if (parent.attrs.some(attr => attr.name === "style")) return;
+  }
+
+  const contrast = readInlineContrast(source.slice(style.startOffset, style.endOffset));
+  if (!contrast || contrast.ratio >= 3) return;
+
+  const startOffset = style.startOffset + contrast.foreground.offset;
+  const length = contrast.foreground.value.length;
+  // Count from the attribute's parse5 position using the raw source, including CRLF.
+  const prefixLines = source.slice(style.startOffset, startOffset).split(/\r\n|\r|\n/);
+  const line = style.startLine + prefixLines.length - 1;
+  const col = (prefixLines.length === 1 ? style.startCol : 1) + prefixLines.at(-1)!.length;
+  const rounded = contrast.ratio.toFixed(2);
+  const ratio = rounded === "3.00" ? String(contrast.ratio) : rounded;
+  return {
+    location: { startOffset, endOffset: startOffset + length, startLine: line, endLine: line,
+      startCol: col, endCol: col + length },
+    message: `Declared foreground ${contrast.foreground.value} on background ${contrast.background} measures ${ratio}:1. `,
+  };
 }
 
 function isExcluded(node: Element, includePresentationRole = true): boolean {
@@ -196,14 +238,15 @@ function formControlMayHaveName(control: Element, nodes: Element[], labels: Elem
 }
 
 /**
- * MVP checks for the six approved accessibility rules on supported static markup.
- * Empty results mean no confirmed finding in the supported subset, not compliance.
+ * Source-based accessibility checks on supported static markup.
  * Positions refer to the original source using UTF-16 editor coordinates.
  */
 function analyzeSource(source: string, fileUri: string): ScanOutcome {
   // Mask only Razor files. The copy has the original length and line endings,
   // so parser locations and occurrence IDs still refer to the original source.
-  const isRazor = /\.cshtml(?:[?#]|$)/i.test(fileUri);
+  const path = fileUri.split(/[?#]/, 1)[0]!;
+  const isRazor = /\.cshtml$/i.test(path);
+  const isHtml = /\.html$/i.test(path);
   const analysisSource = isRazor
     ? maskRazorDirectives(source)
     : source;
@@ -216,19 +259,26 @@ function analyzeSource(source: string, fileUri: string): ScanOutcome {
   });
   const nodes = elements(document);
   if (malformed) return { status: "skipped", issues: [], reason: "Malformed HTML prevents reliable analysis." };
-  if (hasUnsupportedRazor(analysisSource, nodes, isRazor)) return { status: "skipped", issues: [], reason: "Unsupported Razor syntax or ambiguous @ prevents reliable analysis." };
+  if (hasUnsupportedRazor(analysisSource, nodes, isRazor, isHtml)) return { status: "skipped", issues: [], reason: "Unsupported Razor syntax or ambiguous @ prevents reliable analysis." };
   const labels = nodes.filter((node) => node.tagName === "label");
+  const checkContrast = isHtml && !nodes.some(hasStylesheet);
 
   const issues: AccessibilityIssue[] = [];
   const seen = new Set<string>();
   for (const node of nodes) {
-    if (!["img", "button", "a", "html", "iframe", "input", "select", "textarea"].includes(node.tagName) || node.namespaceURI !== "http://www.w3.org/1999/xhtml") continue;
-    const location = node.sourceCodeLocation?.startTag;
+    if (!["p", "img", "button", "a", "html", "iframe", "input", "select", "textarea"].includes(node.tagName) || node.namespaceURI !== htmlNamespace) continue;
+    let location = node.sourceCodeLocation?.startTag;
     // In particular, an implicit html element has no source-backed opening tag.
     if (!location || isExcluded(node)) continue;
     let ruleId: string;
     let message: string;
-    if (node.tagName === "img") {
+    if (node.tagName === "p") {
+      if (!checkContrast) continue;
+      const contrast = findInlineContrast(source, node);
+      if (!contrast) continue;
+      ruleId = INLINE_TEXT_CONTRAST_RULE_ID;
+      ({ location, message } = contrast);
+    } else if (node.tagName === "img") {
       // Presence suffices for alt: alt="" can mean decorative.
       if (node.attrs.some(({ name }) => name === "alt") || hasNamingAttribute(node)) continue;
       ruleId = "image-text-alternative";

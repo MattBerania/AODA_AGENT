@@ -52,6 +52,9 @@ export function createScanResults(api: typeof VSCode) {
       // Prepare everything before replacing the previous entry.
       const nextContexts: IssueContext[] = [];
       const entries = snapshot.issues.map((issue) => {
+        if (issue.fileUri !== snapshot.fileUri) {
+          throw new Error("Finding URI does not match the scanned document.");
+        }
         const range = new api.Range(issue.range.startLine, issue.range.startCharacter,
           issue.range.endLine, issue.range.endCharacter);
         const diagnostic = new api.Diagnostic(range, issue.message, severities[issue.severity]);

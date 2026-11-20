@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     let currentActiveError = null;
+    let requestId;
+    let proposalId;
     //VSCODE API FOR GITHUB COPILOT
     const vscode = acquireVsCodeApi();
     //VSCODE VIEWS
@@ -36,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('message', event => {
         const message = event.data; 
         if (message.type === 'SCAN_RESULTS') {
+            scanPageBtn.classList.add('primary');
+            scanRepoBtn.classList.remove('primary');
             populateSidebar(message.payload);
             if (message.status && message.status !== 'analyzed') {
                 sidebarContent.textContent = message.status === 'pending'
@@ -51,32 +55,26 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMessage(formatBotMessage(message.payload), false);
         }
         else if (message.type === 'FIX_RESPONSE') {
-            if (!currentActiveError || currentActiveError.issue.id !== message.issueId) {
-                return;
+            if (requestId !== message.requestId || currentActiveError?.issue.id !== message.issueId) return;
+            if (message.status === 'ready') {
+                proposalId = message.proposalId;
+                document.querySelector('.original-code').textContent = message.originalText;
+                renderSuggestedFix(message.replacementText, proposalId);
+            } else {
+                document.querySelector('.code-diff-viewer').textContent = message.message;
             }
-            const finalFix = message.payload 
-                ? message.payload 
-                : generateDynamicFix(currentActiveError.issue.ruleId, currentActiveError.originalText);
-            
-            renderSuggestedFix(finalFix);
         }
         else if (message.type === 'SELECT_ISSUE') {
             if (message.payload) {
                 loadErrorDetails(message.payload);
             }
         }
-        else if (message.type === 'FIX_APPLIED') {
-            const generateBtn = document.getElementById('generateFixBtn');
-            if (!generateBtn) return;
-
-            if (message.success) {
-                generateBtn.textContent = '✓ Applied!';
-                generateBtn.style.color = 'var(--success-green)';
-                generateBtn.style.borderColor = 'var(--success-green)';
-            } else {
-                generateBtn.disabled = false;
-                generateBtn.textContent = 'Failed — Retry';
-            }
+        else if (message.type === 'FIX_RESULT' && proposalId && proposalId === message.proposalId) {
+            const button = document.getElementById('applyFixBtn');
+            button.disabled = true;
+            const labels = { applied: 'Applied', verified: 'Verified', unverified: 'Unverified', rejected: 'Rejected', failed: 'Failed' };
+            button.textContent = labels[message.status];
+            document.querySelector('.fix-status').textContent = message.message;
         }
         else if (message.type === 'REPO_SCAN_RESULTS') {
             if (message.message) {
@@ -93,12 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const categories = {};
         
         if (!liveScanResults || liveScanResults.length === 0) {
-            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success);">Analyzed with no confirmed findings from the six implemented checks.</p>';
+            sidebarContent.textContent = 'No findings to display in the Agent.';
             return;
         }
 
         liveScanResults.forEach(context => {
-            if (!context.issue) return;
+            if (!context?.issue) return;
             const cat = context.issue.category;
             if (!categories[cat]) categories[cat] = [];
             categories[cat].push(context);
@@ -163,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sidebarContent.innerHTML = '';
 
         if (!repoScanResults || repoScanResults.length === 0) {
-            sidebarContent.innerHTML = '<p style="padding: 15px; color: var(--success-green);">Repository analyzed with no confirmed findings.</p>';
+            sidebarContent.textContent = 'No repository findings to display in the Agent. See Problems for scan diagnostics.';
             return;
         }
 
@@ -238,40 +236,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 3. FALLBACK CODE SUGGESTION ENGINE
-    function generateDynamicFix(ruleId, originalText) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(originalText, 'text/html');
-        const element = ruleId === 'document-language' ? doc.documentElement : doc.body.firstChild;
-
-        if (!element) return "Error parsing HTML.";
-
-        switch (ruleId) {
-            case 'document-language':
-                element.setAttribute('lang', 'en');
-                return `<html lang="en">`;
-            case 'image-text-alternative':
-                element.setAttribute('alt', 'Descriptive text required');
-                return element.outerHTML;
-            case 'form-control-name':
-                if (!element.id) element.id = "input-id";
-                return `<label for="${element.id}">Descriptive Label</label>\n${element.outerHTML}`;
-            case 'button-name':
-            case 'link-name':
-                element.setAttribute('aria-label', 'Descriptive action name');
-                return element.outerHTML;
-            case 'iframe-name':
-                element.setAttribute('title', 'Descriptive frame title');
-                return element.outerHTML;
-            default:
-                return `<!-- Manual review required -->\n${originalText}`;
-        }
-    }
-
     // 4. NAVIGATION & DETAILS
     function loadErrorDetails(context) {
         const isNewError = !currentActiveError || currentActiveError.issue.id !== context.issue.id;
         currentActiveError = context;
+        requestId = crypto.randomUUID();
+        proposalId = undefined;
         if (isNewError) {
             chatHistory.innerHTML = '';
         }
@@ -287,12 +257,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const errorDesc = document.querySelector('.error-description');
         errorDesc.innerHTML = `
-            <strong>${context.issue.title}</strong>
-            <p>${context.issue.message}</p>
+            <strong>${escapeHTML(context.issue.title)}</strong>
+            <p>${escapeHTML(context.issue.message)}</p>
             <div class="code-header">
                 <strong>Original Code:</strong>
             </div>
-            <div class="code-block">${escapeHTML(formatCodeBlock(context.originalText))}</div>
+            <p>${escapeHTML(context.issue.fileUri)} · Line ${context.issue.range.startLine + 1}</p>
+            <div class="code-block original-code">${escapeHTML(context.originalText)}</div>
         `;
 
         const codeDiff = document.querySelector('.code-diff-viewer');
@@ -300,20 +271,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         vscode.postMessage({
             command: 'generateFix',
-            context: context
+            issueId: context.issue.id,
+            documentVersion: context.documentVersion,
+            requestId
         });
     }
 
-    function renderSuggestedFix(rawFix) {
+    function renderSuggestedFix(replacementText, reviewedId) {
         const codeDiff = document.querySelector('.code-diff-viewer');
-        const formattedFix = formatCodeBlock(rawFix);
 
         codeDiff.innerHTML = `
             <div class="code-header">
-                <strong>Suggested Fix:</strong>
+                <strong>Copilot suggested fix:</strong>
                 <div class="code-actions">
-                    <button id="generateFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
-                        Generate
+                    <button id="applyFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
+                        Apply fix
                     </button>
                     <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
                         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
@@ -321,25 +293,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
             </div>
-            <div class="code-block suggestion-block">${escapeHTML(formattedFix)}</div>
+            <div class="code-block suggestion-block">${escapeHTML(replacementText)}</div>
+            <div class="fix-status" role="status"></div>
         `;
 
-        const generateBtn = document.getElementById('generateFixBtn');
-        generateBtn.addEventListener('click', () => {
-            if (!currentActiveError) return;
-            generateBtn.disabled = true;
-            generateBtn.textContent = 'Applying...';
-
-            vscode.postMessage({
-                command: 'applyFix',
-                fixCode: formattedFix,
-                context: currentActiveError
-            });
+        const applyBtn = document.getElementById('applyFixBtn');
+        applyBtn.addEventListener('click', () => {
+            if (applyBtn.disabled || proposalId !== reviewedId) return;
+            applyBtn.disabled = true;
+            applyBtn.textContent = 'Applying…';
+            vscode.postMessage({ command: 'applyFix', proposalId: reviewedId });
         });
 
         const copyBtn = document.getElementById('copyFixBtn');
         copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(formattedFix).then(() => {
+            navigator.clipboard.writeText(replacementText).then(() => {
                 const originalIcon = copyBtn.innerHTML;
                 copyBtn.innerHTML = '✓ Copied!';
                 copyBtn.style.color = 'var(--success-green)';
@@ -355,6 +323,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     backBtn.addEventListener('click', () => {
+        requestId = undefined;
+        proposalId = undefined;
+        vscode.postMessage({ command: 'dismissFix' });
         detailChatView.classList.remove('active');
         errorListView.classList.add('active');
     });
@@ -425,21 +396,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/\n/g, '<br>');
-    }
-
-    function formatCodeBlock(code) {
-        if (!code) return '';
-        const lines = code.split('\n');
-        const minIndent = lines
-            .filter(line => line.trim().length > 0)
-            .reduce((min, line) => {
-                const indent = line.match(/^\s*/)[0].length;
-                return Math.min(min, indent);
-            }, Infinity);
-        return lines
-            .map(line => line.substring(minIndent === Infinity ? 0 : minIndent))
-            .join('\n')
-            .trim();
     }
 
     function escapeHTML(str) {

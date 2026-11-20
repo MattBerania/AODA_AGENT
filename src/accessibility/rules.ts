@@ -1,5 +1,7 @@
 import type { AccessibilityRule } from "../types/accessibility";
 
+export const INLINE_TEXT_CONTRAST_RULE_ID = "inline-text-contrast";
+
 export const accessibilityRules: Record<string, AccessibilityRule> = {
 
     // NOTE FOR FUTURE: The default severity is "error", but future scanner should only report when it has enough evidence. 
@@ -63,6 +65,15 @@ export const accessibilityRules: Record<string, AccessibilityRule> = {
     category: "Embedded Content",
     severity: "error",
     wcagCriteria: ["4.1.2"],
+  },
+  [INLINE_TEXT_CONTRAST_RULE_ID]: {
+    id: INLINE_TEXT_CONTRAST_RULE_ID,
+    title: "Inline Text Contrast Review",
+    description: "Measures declared inline colours for WCAG 1.4.3 (Level AA) review.",
+    remediation: "Check the rendered colours, text size, and weight. WCAG 1.4.3 generally requires 4.5:1 for normal text and 3:1 for large text.",
+    category: "Contrast",
+    severity: "warning",
+    wcagCriteria: ["1.4.3"],
   },
 };
 

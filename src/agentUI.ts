@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type * as VSCode from "vscode";
-import type { ScannerIntegration } from "./types/scannerIntegration";
-import { discoverSupportedFiles, scanRepositoryFiles } from "./repositoryScanning";
+import { INLINE_TEXT_CONTRAST_RULE_ID } from "./accessibility/rules";
+import { createFixProposals } from "./fixProposals";
+import { SCAN_REPOSITORY_COMMAND, type RepositoryScanResult } from "./repositoryScanning";
+import type { AccessibilityIssue } from "./types/accessibility";
+import type { IssueContext, ScannerIntegration } from "./types/scannerIntegration";
 
 export const OPEN_AGENT_UI_COMMAND = "opsAoda.openAgentUI";
 
@@ -57,12 +60,9 @@ Answer concisely. If they ask for a fix, provide the corrected HTML/Razor code.`
 
 async function generateAiFix(
     api: typeof VSCode,
-    errorContext: any
+    errorContext: IssueContext
 ): Promise<string | null> {
-    const ruleId = errorContext?.issue?.ruleId || "Unknown Rule";
-    const ruleMessage = errorContext?.issue?.message || "";
-    const remediation = errorContext?.rule?.remediation || "";
-    const codeSnippet = errorContext?.originalText || "";
+    const { issue, rule, originalText } = errorContext;
 
     try {
         const [model] = await api.lm.selectChatModels({ vendor: "copilot" });
@@ -73,32 +73,36 @@ async function generateAiFix(
         const messages = [
             api.LanguageModelChatMessage.User(
                 `Fix the following AODA/WCAG accessibility violation.
-Rule: ${ruleId} (${ruleMessage})
-Guidance: ${remediation}
+Rule: ${issue.ruleId} (${issue.message})
+Guidance: ${rule.remediation}
 
 Original code:
-${codeSnippet}
+${originalText}
 
-Return ONLY the corrected HTML/Razor code snippet. Do not include explanations, comments, or markdown code fences.`
+Return only the revised opening tag for the same element. Preserve unrelated attributes and Razor expressions. Do not include a closing tag, surrounding markup, explanations or code fences.`
             ),
         ];
 
         const tokenSource = new api.CancellationTokenSource();
-        const response = await model.sendRequest(messages, {}, tokenSource.token);
-
-        let fullReply = "";
-        for await (const chunk of response.text) {
-            fullReply += chunk;
+        try {
+            const response = await model.sendRequest(messages, {}, tokenSource.token);
+            let fullReply = "";
+            for await (const chunk of response.text) fullReply += chunk;
+            return fullReply.trim().replace(/^```[\w]*\r?\n?/i, "").replace(/\r?\n?```$/i, "").trim();
+        } finally {
+            tokenSource.dispose();
         }
-
-        return fullReply.replace(/^```[\w]*\n?/i, "").replace(/\n?```$/i, "").trim();
     } catch (err) {
         console.error("AI Fix generation error:", err);
         return null;
     }
 }
 
-function isPositionInIssue(position: VSCode.Position, issue: any): boolean {
+function isAgentIssue(issue: AccessibilityIssue): boolean {
+    return issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID;
+}
+
+function isPositionInIssue(position: VSCode.Position, issue: AccessibilityIssue): boolean {
     const range = issue?.range;
     if (!range) return false;
 
@@ -118,9 +122,10 @@ export function registerAgentUI(
     scanner: ScannerIntegration,
 ): void {
     let panel: VSCode.WebviewPanel | undefined;
+    let showRepository = false;
 
     function updateWebview() {
-        if (!panel) {
+        if (!panel || showRepository) {
             return;
         }
         const snapshot = scanner.getLatestScan();
@@ -132,14 +137,9 @@ export function registerAgentUI(
             return;
         }
 
-        const payload = snapshot.issues.map(issue => {
-            const issueCtx = scanner.getIssueContext(issue.id);
-            return {
-                issue: issueCtx?.issue,
-                originalText: issueCtx?.originalText,
-                rule: issueCtx?.rule,
-            };
-        });
+        const payload = snapshot.issues
+            .filter(isAgentIssue)
+            .map(issue => scanner.getIssueContext(issue.id));
         panel.webview.postMessage({
             type: "SCAN_RESULTS",
             payload,
@@ -149,6 +149,7 @@ export function registerAgentUI(
     }
 
     const command = api.commands.registerCommand(OPEN_AGENT_UI_COMMAND, () => {
+        showRepository = false;
         if (panel) {
             panel.reveal(api.ViewColumn.Beside, true);
             setTimeout(() => { updateWebview(); }, 250);
@@ -173,15 +174,23 @@ export function registerAgentUI(
         html = html.replace('JS/AODA_Agent.js', jsUri.toString());
 
         panel.webview.html = html;
-        panel.onDidDispose(() => { panel = undefined; });
+        const owner = panel;
+        let repositoryScanRunning = false;
+        const proposals = createFixProposals(api, scanner, details => generateAiFix(api, details));
+        panel.onDidDispose(() => {
+            proposals.clear();
+            panel = undefined;
+        });
 
         panel.webview.onDidReceiveMessage(async (message) => {
+            if (!message || typeof message !== 'object' || panel !== owner) return;
             switch (message.command) {
                 case 'askChatbot': {
                     const { text, context: errorContext, typingId } = message;
                     const botReply = await handleChatPrompt(api, text, errorContext);
 
-                    panel?.webview.postMessage({
+                    if (panel !== owner) break;
+                    panel.webview.postMessage({
                         type: 'CHAT_RESPONSE',
                         payload: botReply,
                         typingId: typingId
@@ -190,121 +199,81 @@ export function registerAgentUI(
                 }
 
                 case 'generateFix': {
-                    const { context: fixContext } = message;
-                    const aiFix = await generateAiFix(api, fixContext);
+                    const { issueId, documentVersion, requestId } = message;
+                    const result = await proposals.generate(issueId, documentVersion);
+                    if (result && panel === owner) {
+                        void owner.webview.postMessage({ type: 'FIX_RESPONSE', issueId, requestId, ...result });
+                    }
+                    break;
+                }
 
-                    panel?.webview.postMessage({
-                        type: 'FIX_RESPONSE',
-                        payload: aiFix,
-                        issueId: fixContext?.issue?.id
-                    });
+                case 'dismissFix': {
+                    proposals.clear();
                     break;
                 }
 
                 case 'applyFix': {
-                    const { fixCode, context: fixContext } = message;
-                    const issue = fixContext?.issue;
-
-                    if (!issue?.fileUri || !issue?.range || typeof fixCode !== 'string') {
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
-                        break;
-                    }
-
-                    try {
-                        const uri = api.Uri.parse(issue.fileUri);
-                        const document = await api.workspace.openTextDocument(uri);
-                        const range = new api.Range(
-                            issue.range.startLine,
-                            issue.range.startCharacter,
-                            issue.range.endLine,
-                            issue.range.endCharacter
-                        );
-
-                        // Match the indentation of the original line for multi-line fixes
-                        const lineText = document.lineAt(issue.range.startLine).text;
-                        const indent = lineText.match(/^\s*/)?.[0] ?? '';
-                        const indentedFix = fixCode
-                            .split('\n')
-                            .map((line: string, i: number) => (i === 0 ? line : indent + line))
-                            .join('\n');
-
-                        const edit = new api.WorkspaceEdit();
-                        edit.replace(uri, range, indentedFix);
-                        const success = await api.workspace.applyEdit(edit);
-
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success });
-                    } catch (err) {
-                        console.error('Error applying fix:', err);
-                        panel?.webview.postMessage({ type: 'FIX_APPLIED', success: false });
+                    const { proposalId } = message;
+                    const result = Object.keys(message).every(key => key === 'command' || key === 'proposalId')
+                        ? await proposals.approve(proposalId)
+                        : { status: 'rejected', message: 'Approval must contain only the proposal identifier.' };
+                    if (panel === owner) {
+                        void owner.webview.postMessage({ type: 'FIX_RESULT', proposalId, ...result });
                     }
                     break;
                 }
 
                 case 'scanCurrentPage': {
+                    showRepository = false;
                     await api.commands.executeCommand('opsAoda.scanCurrentPage');
                     updateWebview();
                     break;
                 }
 
                 case 'scanRepository': {
-                    const folders = api.workspace.workspaceFolders;
-                    if (!folders || folders.length === 0) {
-                        panel?.webview.postMessage({
-                            type: 'REPO_SCAN_RESULTS',
-                            payload: [],
-                            message: 'Open a workspace folder to scan the repository.'
-                        });
-                        break;
-                    }
-
+                    showRepository = true;
+                    if (repositoryScanRunning) break;
+                    repositoryScanRunning = true;
                     try {
-                        const files = await discoverSupportedFiles(api);
-                        const result = await scanRepositoryFiles(api, files);
-                        const payload: any[] = [];
-
-                        for (const snapshot of result.snapshots) {
-                            if (!snapshot.issues.length) continue;
-                            const uri = api.Uri.parse(snapshot.fileUri);
-                            const doc = await api.workspace.openTextDocument(uri);
-                            const workspaceFolder = api.workspace.getWorkspaceFolder(uri);
-                            const rootName = workspaceFolder?.name ?? 'Workspace';
-                            const relPath = api.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
-                            const lastSlash = relPath.lastIndexOf('/');
-                            const folderPath = lastSlash >= 0
-                                ? `${rootName}/${relPath.substring(0, lastSlash)}`
-                                : rootName;
-                            const fileName = lastSlash >= 0 ? relPath.substring(lastSlash + 1) : relPath;
-                            for (const issue of snapshot.issues) {
-                                const range = new api.Range(
-                                    issue.range.startLine,
-                                    issue.range.startCharacter,
-                                    issue.range.endLine,
-                                    issue.range.endCharacter
-                                );
-                                const originalText = doc.getText(range);
-                                const issueCtx = scanner.getIssueContext(issue.id);
-
-                                payload.push({
-                                    issue,
-                                    originalText,
-                                    rule: issueCtx?.rule,
-                                    folderPath,
-                                    fileName
-                                });
-                            }
+                        const result = await api.commands.executeCommand<RepositoryScanResult | undefined>(
+                            SCAN_REPOSITORY_COMMAND);
+                        if (panel !== owner || !showRepository) break;
+                        if (!result) {
+                            void owner.webview.postMessage({
+                                type: 'REPO_SCAN_RESULTS',
+                                message: 'Repository scan unavailable. See VS Code notifications for details.',
+                            });
+                            break;
                         }
 
-                        panel?.webview.postMessage({
-                            type: 'REPO_SCAN_RESULTS',
-                            payload
-                        });
-                    } catch (err) {
-                        console.error('Repository scan error:', err);
-                        panel?.webview.postMessage({
-                            type: 'REPO_SCAN_RESULTS',
-                            payload: [],
-                            message: 'Error scanning repository.'
-                        });
+                        const payload: (IssueContext & { folderPath: string; fileName: string })[] = [];
+                        for (const snapshot of result.snapshots) {
+                            const issues = snapshot.issues.filter(isAgentIssue);
+                            if (!issues.length) continue;
+                            const uri = api.Uri.parse(snapshot.fileUri);
+                            const rootName = api.workspace.getWorkspaceFolder(uri)?.name ?? 'Workspace';
+                            const relPath = api.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+                            const lastSlash = relPath.lastIndexOf('/');
+                            const folderPath = lastSlash >= 0 ? `${rootName}/${relPath.slice(0, lastSlash)}` : rootName;
+                            const fileName = relPath.slice(lastSlash + 1);
+                            for (const issue of issues) {
+                                const details = scanner.getIssueContext(issue.id);
+                                if (details?.documentVersion === snapshot.documentVersion) {
+                                    payload.push({ ...details, folderPath, fileName });
+                                }
+                            }
+                        }
+                        void owner.webview.postMessage({ type: 'REPO_SCAN_RESULTS', payload });
+                    } catch (error) {
+                        console.error('Repository scan error:', error);
+                        if (panel === owner && showRepository) {
+                            void owner.webview.postMessage({
+                                type: 'REPO_SCAN_RESULTS',
+                                message: 'Error scanning repository.',
+                            });
+                        }
+                    } finally {
+                        repositoryScanRunning = false;
                     }
                     break;
                 }
@@ -328,17 +297,12 @@ export function registerAgentUI(
         const clickedPos = event.selections[0]?.active;
         if (!clickedPos) return;
 
-        const matchedIssue = snapshot.issues.find((issue) => isPositionInIssue(clickedPos, issue));
+        const matchedIssue = snapshot.issues.find(issue =>
+            isAgentIssue(issue) && isPositionInIssue(clickedPos, issue));
         if (!matchedIssue) return;
 
         const issueCtx = scanner.getIssueContext(matchedIssue.id);
         if (!issueCtx) return;
-
-        const payload = {
-            issue: issueCtx.issue,
-            originalText: issueCtx.originalText,
-            rule: issueCtx.rule,
-        };
 
         const wasClosed = !panel;
         if (wasClosed) {
@@ -350,7 +314,7 @@ export function registerAgentUI(
         setTimeout(() => {
             panel?.webview.postMessage({
                 type: "SELECT_ISSUE",
-                payload,
+                payload: issueCtx,
             });
         }, wasClosed ? 350 : 0);
     });
