@@ -33,6 +33,27 @@ Extension Development Host. You can scan the fixtures without an ASP.NET server.
 | **OPS AODA: Show Scan Issues** | Opens a finding from the current page's scan and displays its source and remediation guidance. |
 | **OPS AODA: Open Agent UI** | Opens the side panel for scan findings and optional GitHub Copilot assistance. With a Copilot model available, you can review and approve proposed edits for structural findings. |
 
+## Activity Bar sidebar integration
+
+The shield-and-check icon opens a sidebar with **OPS AODA Agent** placeholder
+text. The existing **Open Agent UI** command continues to open its existing panel.
+
+| Contribution | Stable identifier |
+| --- | --- |
+| Activity Bar container | `opsAoda` |
+| Webview view | `opsAoda.agentSidebar` |
+
+`activate()` calls `registerAgentSidebar()`, which registers the placeholder
+provider and its disposable. `resolveWebviewView()` supplies its content.
+
+For integration, replace the placeholder rendering in `src/agentSidebar.ts`
+using the supplied `view.webview`. Keep both identifiers and the `webview`
+contribution type, and register only one provider for the view. Configure resource
+URIs, scripts, content security policy, and messaging when connecting the real UI.
+
+F5 smoke check: click the shield icon, confirm the placeholder appears, switch to
+Explorer and back, and verify the existing Command Palette commands still work.
+
 ## Scan coverage
 
 The structural checks look for missing image text alternatives, accessible names
