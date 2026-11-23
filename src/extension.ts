@@ -12,7 +12,7 @@ export function activate(context: vscode.ExtensionContext): ScannerIntegration {
   const scanner = registerCurrentPageScanning(vscode, context, results);
   registerRepositoryScanning(vscode, context, results);
   registerIssuePresentation(vscode, context, scanner);
-  registerAgentUI(vscode, context, scanner);
-  registerAgentSidebar(vscode, context);
+  const agentProvider = registerAgentUI(vscode, context, scanner);
+  registerAgentSidebar(vscode, context, agentProvider);
   return scanner;
 }

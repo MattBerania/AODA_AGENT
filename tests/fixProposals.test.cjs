@@ -20,16 +20,21 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
   let receive;
   let dispose;
   const selections = new api.EventEmitter();
+  const visibility = new api.EventEmitter();
+  const history = new Map();
+  context.workspaceState = { get: (key, fallback) => history.get(key) ?? fallback, update: async (key, value) => history.set(key, value) };
   const panel = {
-    reveal() {},
+    visible: true,
+    show() {},
+    onDidChangeVisibility: visibility.event,
     webview: {
       asWebviewUri: uri => uri,
       postMessage: msg => { messages.push(msg); },
-      onDidReceiveMessage: listener => { receive = listener; },
+      onDidReceiveMessage: listener => { receive = listener; return { dispose() { receive = async () => {}; } }; },
     },
-    onDidDispose: listener => { dispose = listener; },
+    onDidDispose: listener => { dispose = listener; return { dispose() {} }; },
   };
-  api.window.createWebviewPanel = () => panel;
+  api.window.createWebviewPanel = () => { throw new Error("Duplicate panel must not be created"); };
   api.window.onDidChangeTextEditorSelection = selections.event;
   api.TextEditorSelectionChangeKind = { Mouse: 2 };
   api.Uri.file = path => ({ toString: () => path });
@@ -55,7 +60,9 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
   api.LanguageModelChatMessage = { User: text => text };
   api.CancellationTokenSource = class { dispose() {} };
   context.extensionPath = join(__dirname, '..');
-  registerAgentUI(api, context, host.integration);
+  const provider = registerAgentUI(api, context, host.integration);
+  provider.resolveWebviewView(panel);
+  receive({ command: "ready" });
   host.commands.get(OPEN_AGENT_UI_COMMAND)();
   t.after(() => { dispose(); for (const sub of context.subscriptions) sub.dispose(); });
   async function send(command) {
@@ -67,7 +74,7 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
   });
   const approve = (proposalId, extra = {}) => send({ command: 'applyFix', proposalId, ...extra });
   return { ...host, document, issue, requests, messages, edits, send, generate, approve, selections,
-    dispose: () => dispose() };
+    visibility, panel, receive: message => receive(message), provider, dispose: () => dispose() };
 }
 
 test('review and apply exactly the host proposal, including CRLF and UTF-16 offsets', async t => {
@@ -359,9 +366,10 @@ test('webview reviews the current reply and sends only the reviewed ID on Apply'
   const script = require('node:fs').readFileSync(join(__dirname, '../prototype/JS/AODA_Agent.js'), 'utf8');
   require('node:vm').runInNewContext(script, {
     document: webDocument, window: webWindow, crypto: require('node:crypto'),
-    acquireVsCodeApi: () => ({ postMessage: message => outbound.push({ ...message }) }),
+    acquireVsCodeApi: () => ({ getState: () => undefined, setState() {}, postMessage: message => outbound.push({ ...message }) }),
   });
 
+  assert.deepEqual(outbound.shift(), { command: 'ready' });
   assert.deepEqual(outbound.shift(), { command: 'getChatHistory' });
 
   const selection = { type: 'SELECT_ISSUE', payload: host.integration.getIssueContext(host.issue.id) };
@@ -399,3 +407,65 @@ for (const [source, replacement] of [
     assert.equal(host.document.getText(), source.replace(review.originalText, replacement));
   });
 }
+
+test('open command focuses the existing sidebar without creating a panel', async t => {
+  const host = setup(t);
+  const calls = [];
+  host.api.commands.executeCommand = async id => calls.push(id);
+  await host.commands.get(OPEN_AGENT_UI_COMMAND)();
+  await host.commands.get(OPEN_AGENT_UI_COMMAND)();
+  assert.deepEqual(calls, ['opsAoda.agentSidebar.focus', 'opsAoda.agentSidebar.focus']);
+});
+
+test('hidden sidebar queues fix responses and delivers them on reveal once', async t => {
+  const host = setup(t);
+  host.panel.visible = false;
+  const before = host.messages.length;
+  await host.generate();
+  assert.equal(host.messages.length, before);
+  host.panel.visible = true;
+  host.visibility.fire();
+  assert.equal(host.messages.filter(m => m.type === 'FIX_RESPONSE').length, 1);
+  host.visibility.fire();
+  assert.equal(host.messages.filter(m => m.type === 'FIX_RESPONSE').length, 1);
+});
+
+test('disposing the sidebar prevents late fix responses and removes its listener', async t => {
+  let finish;
+  const host = setup(t, '<img>', () => new Promise(resolve => { finish = resolve; }));
+  const pending = host.generate();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(typeof finish, 'function');
+  host.dispose();
+  finish('<img alt="Office">');
+  await pending;
+  assert.equal(host.messages.filter(m => m.type === 'FIX_RESPONSE').length, 0);
+  assert.equal(host.visibility.listeners.size, 0);
+});
+
+test('sidebar reuses chat messaging and workspace history', async t => {
+  const host = setup(t);
+  await host.send({ command: 'saveChatHistory', payload: [{ id: 'chat-1', messages: [] }] });
+  const history = await host.send({ command: 'getChatHistory' });
+  assert.deepEqual(history.payload, [{ id: 'chat-1', messages: [] }]);
+  const reply = await host.send({ command: 'askChatbot', text: 'Explain this issue', typingId: 'typing-1' });
+  assert.equal(reply.type, 'CHAT_RESPONSE');
+  assert.equal(reply.typingId, 'typing-1');
+  assert.ok(host.requests.length);
+});
+
+test('resolved sidebar loads existing assets and waits for browser readiness', async t => {
+  const host = setup(t);
+  assert.equal(host.panel.webview.options.enableScripts, true);
+  assert.match(host.panel.webview.html, /prototype[/\\]CSS[/\\]AODA.css/);
+  assert.match(host.panel.webview.html, /prototype[/\\]JS[/\\]AODA_Agent.js/);
+  const next = { ...host.panel, webview: { ...host.panel.webview } };
+  host.provider.resolveWebviewView(next);
+  const before = host.messages.length;
+  t.mock.timers.tick(300);
+  assert.equal(host.messages.length, before);
+  await host.receive({ command: 'ready' });
+  assert.equal(host.messages.at(-1).type, 'SCAN_RESULTS');
+  assert.equal(host.visibility.listeners.size, 1);
+});

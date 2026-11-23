@@ -18,22 +18,19 @@ test('manifest connects the stable sidebar identifiers to a packaged icon and we
   assert.equal(view.icon, container.icon);
 });
 
-test('sidebar renders a placeholder and disposes with the extension', () => {
-  let provider;
-  let disposed = false;
+test('sidebar registers exactly the supplied agent provider with retained context', () => {
+  const provider = { resolveWebviewView() {} };
   const context = { subscriptions: [] };
-  registerAgentSidebar({ window: { registerWebviewViewProvider(id, value) {
+  let disposed = false;
+  let calls = 0;
+  registerAgentSidebar({ window: { registerWebviewViewProvider(id, actual, options) {
+    calls++;
     assert.equal(id, AGENT_SIDEBAR_VIEW_ID);
-    provider = value;
+    assert.equal(actual, provider);
+    assert.equal(options.webviewOptions.retainContextWhenHidden, true);
     return { dispose() { disposed = true; } };
-  } } }, context);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const view = { webview: {} };
-    provider.resolveWebviewView(view);
-    assert.match(view.webview.html, /<p>OPS AODA Agent<\/p>/);
-    assert.deepEqual(view.webview.options, { enableScripts: false, localResourceRoots: [] });
-  }
-  assert.equal(context.subscriptions.length, 1);
+  } } }, context, provider);
+  assert.equal(calls, 1);
   context.subscriptions[0].dispose();
   assert.equal(disposed, true);
 });

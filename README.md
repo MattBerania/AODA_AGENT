@@ -31,28 +31,33 @@ Extension Development Host. You can scan the fixtures without an ASP.NET server.
 | **OPS AODA: Scan Current Page** | Scans the current HTML or Razor buffer. The active supported file also rescans after a brief typing pause or when you switch to it. |
 | **OPS AODA: Scan Repository** | Scans supported files across the open workspace and reports analyzed, skipped, and failed files. |
 | **OPS AODA: Show Scan Issues** | Opens a finding from the current page's scan and displays its source and remediation guidance. |
-| **OPS AODA: Open Agent UI** | Opens the side panel for scan findings and optional GitHub Copilot assistance. With a Copilot model available, you can review and approve proposed edits for structural findings. |
+| **OPS AODA: Open Agent UI** | Opens the Activity Bar sidebar for scan findings and optional GitHub Copilot assistance. With a Copilot model available, you can review and approve proposed edits for structural findings. |
 
 ## Activity Bar sidebar integration
 
-The shield-and-check icon opens a sidebar with **OPS AODA Agent** placeholder
-text. The existing **Open Agent UI** command continues to open its existing panel.
+The Activity Bar shield-and-check opens the existing agent interface. **OPS AODA:
+Open Agent UI** focuses the same sidebar; it does not create an editor panel.
 
 | Contribution | Stable identifier |
 | --- | --- |
 | Activity Bar container | `opsAoda` |
 | Webview view | `opsAoda.agentSidebar` |
 
-`activate()` calls `registerAgentSidebar()`, which registers the placeholder
-provider and its disposable. `resolveWebviewView()` supplies its content.
+`registerAgentUI()` returns the single provider used by `registerAgentSidebar()`.
+It loads the existing `prototype/` assets and handles scan, chat, and fix messages.
+The browser sends `ready` after installing its listeners. Responses received while
+hidden are queued until the view is visible. Context is retained during Activity
+Bar switching, preserving navigation, draft text, and pending fix review at the
+cost of keeping this webview in memory. Chat history remains in workspace state;
+draft text and the active chat session also use webview state. Explicit disposal
+clears pending approvals and listeners. A new view starts fresh findings/navigation
+and requires a new fix review; it never restores approval authority from browser state.
 
-For integration, replace the placeholder rendering in `src/agentSidebar.ts`
-using the supplied `view.webview`. Keep both identifiers and the `webview`
-contribution type, and register only one provider for the view. Configure resource
-URIs, scripts, content security policy, and messaging when connecting the real UI.
-
-F5 smoke check: click the shield icon, confirm the placeholder appears, switch to
-Explorer and back, and verify the existing Command Palette commands still work.
+F5 smoke checks: open the sidebar at a narrow width, scan a demo page and the
+repository, select a finding, review/copy/apply a suggestion, and send a chat
+message if Copilot is available. Type a draft, switch to Explorer and back, resize,
+and confirm the draft and selected view remain. Run **Open Agent UI** and confirm
+it reveals the same interface. Use disposable fixture edits and undo afterward.
 
 ## Scan coverage
 
