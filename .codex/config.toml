@@ -1,0 +1,4 @@
+# AODA Agent repository-specific Codex settings
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
