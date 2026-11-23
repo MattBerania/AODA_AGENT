@@ -342,6 +342,7 @@ test('webview reviews the current reply and sends only the reviewed ID on Apply'
       const listeners = {};
       elements.set(selector, {
         classList: { add() {}, remove() {} }, setAttribute() {},
+        appendChild(child) { return child; },
         addEventListener: (name, callback) => { listeners[name] = callback; },
         click: () => listeners.click(),
       });
@@ -360,6 +361,8 @@ test('webview reviews the current reply and sends only the reviewed ID on Apply'
     document: webDocument, window: webWindow, crypto: require('node:crypto'),
     acquireVsCodeApi: () => ({ postMessage: message => outbound.push({ ...message }) }),
   });
+
+  assert.deepEqual(outbound.shift(), { command: 'getChatHistory' });
 
   const selection = { type: 'SELECT_ISSUE', payload: host.integration.getIssueContext(host.issue.id) };
   deliver(selection);
