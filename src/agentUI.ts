@@ -23,30 +23,28 @@ async function handleChatPrompt(
         if (!model) {
             return "GitHub Copilot is not available. Make sure you are signed into Copilot in VS Code.";
         }
+        const contextPrompt = errorContext?.issue
+            ? `You are an expert AODA and WCAG 2.2 accessibility assistant.
+            The user is asking about this code snippet:
+            \`\`\`html
+            ${codeSnippet}
+            \`\`\`
+            It violates rule: ${ruleId}
+            Remediation guidance: ${ruleDescription}
 
+            Answer concisely. If they ask for a fix, provide the corrected HTML/Razor code.`
+                        : `You are an expert AODA (Accessibility for Ontarians with Disabilities Act) and WCAG 2.0/2.2 accessibility assistant.
+            Answer the user's accessibility questions concisely and provide clean HTML/Razor examples when helpful.`;
         const messages = [
-            api.LanguageModelChatMessage.User(
-                `You are an expert AODA and WCAG 2.2 accessibility assistant.
-The user is asking about this code snippet:
-\`\`\`html
-${codeSnippet}
-\`\`\`
-It violates rule: ${ruleId}
-Remediation guidance: ${ruleDescription}
-
-Answer concisely. If they ask for a fix, provide the corrected HTML/Razor code.`
-            ),
+            api.LanguageModelChatMessage.User(contextPrompt),
             api.LanguageModelChatMessage.User(userText),
         ];
-
         const tokenSource = new api.CancellationTokenSource();
         const response = await model.sendRequest(messages, {}, tokenSource.token);
-
         let fullReply = "";
         for await (const chunk of response.text) {
             fullReply += chunk;
         }
-
         return fullReply;
     } catch (err) {
         if (err instanceof api.LanguageModelError) {
@@ -122,6 +120,7 @@ export function registerAgentUI(
     scanner: ScannerIntegration,
 ): void {
     let panel: VSCode.WebviewPanel | undefined;
+    const CHAT_HISTORY_KEY = "aodaAgent.chatHistory";
     let showRepository = false;
 
     function updateWebview() {
@@ -275,6 +274,20 @@ export function registerAgentUI(
                     } finally {
                         repositoryScanRunning = false;
                     }
+                    break;
+                }
+
+                case 'getChatHistory': {
+                    const history = context.workspaceState.get<any[]>(CHAT_HISTORY_KEY, []);
+                    panel?.webview.postMessage({
+                        type: 'CHAT_HISTORY_LOADED',
+                        payload: history
+                    });
+                    break;
+                }
+
+                case 'saveChatHistory': {
+                    await context.workspaceState.update(CHAT_HISTORY_KEY, message.payload ?? []);
                     break;
                 }
             }

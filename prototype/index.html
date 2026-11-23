@@ -8,14 +8,96 @@
 </head>
 <body>
     <div id="app-container">
-        <div id="error-list-view" class="view-panel active">
-            <div class="ui-toolbar">
-                <button id="scanPageBtn" class="toolbar-btn primary">Scan Current Page</button>
-                <button id="scanRepoBtn" class="toolbar-btn">Scan Repository</button>
+        <div class="ui-toolbar">
+            <button id="homeBtn" class="toolbar-btn home-btn primary" title="Home" aria-label="Home">
+                <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 2 8h1v5.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V10h2v3.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V8h1a.5.5 0 0 0 .354-.854l-6-6z"/>
+                </svg>
+                <span>Home</span>
+            </button>
+            <button id="scanPageBtn" class="toolbar-btn">Scan Current Page</button>
+            <button id="scanRepoBtn" class="toolbar-btn">Scan Repository</button>
+        </div>
+
+        <!-- HOME VIEW (Default) -->
+        <div id="home-view" class="view-panel active">
+            <div class="scrollable-content home-container">
+                <div class="aoda-summary-card">
+                    <h3>AODA &amp; WCAG 2.0/2.2 Quick Guide</h3>
+                    <p class="summary-intro">
+                        Under Ontario's <strong>Accessibility for Ontarians with Disabilities Act (AODA)</strong>,
+                        public websites and web apps must meet <strong>WCAG 2.0 Level AA</strong> (with WCAG 2.2
+                        as the modern best-practice standard) based on four core principles—<strong>POUR</strong>:
+                    </p>
+                    <ul class="pour-list">
+                        <li><strong>Perceivable:</strong> Provide text alternatives (<code>alt</code>) for images, captions, and sufficient colour contrast.</li>
+                        <li><strong>Operable:</strong> Ensure all interactive controls work via keyboard navigation with clear focus states.</li>
+                        <li><strong>Understandable:</strong> Set page language (<code>lang</code>), pair inputs with <code>&lt;label&gt;</code>, and provide clear error messages.</li>
+                        <li><strong>Robust:</strong> Use valid semantic HTML and accessible names (<code>aria-label</code>, <code>title</code>) for buttons, links, and iframes.</li>
+                    </ul>
+                    <div class="aoda-sources">
+                        <span class="sources-label">Official Resources:</span>
+                        <a href="https://www.ontario.ca/page/how-make-websites-accessible" target="_blank" rel="noopener">Ontario AODA Web Guide</a>
+                        <a href="https://www.w3.org/WAI/WCAG22/quickref/" target="_blank" rel="noopener">WCAG 2.2 Quick Reference</a>
+                        <a href="https://www.w3.org/WAI/standards-guidelines/wcag/" target="_blank" rel="noopener">W3C WAI Overview</a>
+                    </div>
+                </div>
+
+                <div id="home-chat-mount" class="chat-mount">
+                    <div id="chatSection" class="chat-section">
+                        <div class="chat-header">
+                            <div class="chat-header-left">
+                                <button
+                                    id="toggleHistoryBtn"
+                                    class="chat-icon-btn"
+                                    aria-label="Toggle chat history"
+                                    title="Chat history"
+                                >☰</button>
+                                <span>AODA Assistant</span>
+                            </div>
+                            <div class="chat-header-actions">
+                                <button
+                                    id="newChatBtn"
+                                    class="chat-icon-btn"
+                                    aria-label="New chat"
+                                    title="New chat"
+                                >＋</button>
+                                <button
+                                    id="maximizeChatBtn"
+                                    class="chat-icon-btn"
+                                    aria-label="Maximize chat"
+                                    title="Maximize chat"
+                                >⛶</button>
+                            </div>
+                        </div>
+
+                        <div class="chat-body">
+                            <aside id="chatHistoryDrawer" class="chat-history-drawer">
+                                <div class="history-drawer-header">
+                                    <span>Chat History</span>
+                                </div>
+                                <div id="chatSessionList" class="chat-session-list"></div>
+                            </aside>
+
+                            <div class="chat-history"></div>
+                        </div>
+
+                        <div class="chat-input-area">
+                            <input type="text" id="chatInput" placeholder="Ask about AODA, WCAG, or an issue..." />
+                            <button id="sendMsgBtn">Send</button>
+                            <button id="clearChatBtn" type="button" title="Clear chat history">Clear</button>
+                        </div>
+                    </div>
+                </div>
             </div>
+        </div>
+
+        <!-- ERROR LIST VIEW -->
+        <div id="error-list-view" class="view-panel">
             <div id="sidebar-content" class="scrollable-content"></div>
         </div>
 
+        <!-- DETAIL & CHAT VIEW -->
         <div id="detail-chat-view" class="view-panel">
             <div class="panel-header action-header">
                 <button id="backBtn" class="icon-btn">&larr; Back to List</button>
@@ -27,25 +109,7 @@
                     <div class="code-diff-viewer section"></div>
                 </div>
 
-                <div class="chat-section">
-                    <div class="chat-header">
-                        <span>AODA Assistant</span>
-                        <button
-                            id="maximizeChatBtn"
-                            class="chat-icon-btn"
-                            aria-label="Maximize chat"
-                            title="Maximize chat"
-                        >⛶</button>
-                    </div>
-
-                    <div class="chat-history"></div>
-
-                    <div class="chat-input-area">
-                        <input type="text" id="chatInput" placeholder="Ask about this issue..." />
-                        <button id="sendMsgBtn">Send</button>
-                        <button id="clearChatBtn" type="button" title="Clear chat history">Clear</button>
-                    </div>
-                </div>
+                <div id="detail-chat-mount" class="chat-mount"></div>
             </div>
         </div>
     </div>

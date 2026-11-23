@@ -1,24 +1,57 @@
 document.addEventListener('DOMContentLoaded', () => {
     let currentActiveError = null;
+    let chatSessions = [];
+    let activeSessionId = null;
     let requestId;
     let proposalId;
     //VSCODE API FOR GITHUB COPILOT
     const vscode = acquireVsCodeApi();
-    //VSCODE VIEWS
+
+    //VIEWS
+    const homeView = document.getElementById('home-view');
     const errorListView = document.getElementById('error-list-view');
     const detailChatView = document.getElementById('detail-chat-view');
     const sidebarContent = document.getElementById('sidebar-content');
     const detailContainer = document.querySelector('.detail-container');
+    const homeContainer = document.querySelector('.home-container');
+    const chatSection = document.getElementById('chatSection');
+    const homeChatMount = document.getElementById('home-chat-mount');
+    const detailChatMount = document.getElementById('detail-chat-mount');
     
-    //BUTTONS 
+    //BUTTONS
+    const homeBtn = document.getElementById('homeBtn');
     const backBtn = document.getElementById('backBtn');
     const maximizeChatBtn = document.getElementById('maximizeChatBtn');
     const scanPageBtn = document.getElementById('scanPageBtn');
     const scanRepoBtn = document.getElementById('scanRepoBtn');
 
+    function setActiveTab(tab) {
+        activeTab = tab;
+        homeBtn.classList.toggle('primary', tab === 'home');
+        scanPageBtn.classList.toggle('primary', tab === 'page');
+        scanRepoBtn.classList.toggle('primary', tab === 'repo');
+    }
+
+    function showHomeView() {
+        setActiveTab('home');
+        currentActiveError = null;
+        homeContainer.classList.remove('chat-maximized');
+        detailContainer.classList.remove('chat-maximized');
+        maximizeChatBtn.textContent = '⛶';
+        maximizeChatBtn.setAttribute('aria-label', 'Maximize chat');
+        maximizeChatBtn.title = 'Maximize chat';
+
+        homeChatMount.appendChild(chatSection);
+        errorListView.classList.remove('active');
+        detailChatView.classList.remove('active');
+        homeView.classList.add('active');
+    }
+
+    homeBtn.addEventListener('click', showHomeView);
+
     scanPageBtn.addEventListener('click', () => {
-        scanPageBtn.classList.add('primary');
-        scanRepoBtn.classList.remove('primary');
+        setActiveTab('page');
+        homeView.classList.remove('active');
         detailChatView.classList.remove('active');
         errorListView.classList.add('active');
         sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning current page...</em></p>';
@@ -26,8 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     scanRepoBtn.addEventListener('click', () => {
-        scanRepoBtn.classList.add('primary');
-        scanPageBtn.classList.remove('primary');
+        setActiveTab('repo');
+        homeView.classList.remove('active');
         detailChatView.classList.remove('active');
         errorListView.classList.add('active');
         sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Scanning repository...</em></p>';
@@ -38,21 +71,26 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('message', event => {
         const message = event.data; 
         if (message.type === 'SCAN_RESULTS') {
-            scanPageBtn.classList.add('primary');
-            scanRepoBtn.classList.remove('primary');
+            if (activeTab !== 'page') return;
             populateSidebar(message.payload);
             if (message.status && message.status !== 'analyzed') {
                 sidebarContent.textContent = message.status === 'pending'
                     ? 'Waiting for scan results.'
                     : 'Scan ' + message.status + '. ' + (message.reason || '');
             }
-        } 
+        }
+        else if (message.type === 'CHAT_HISTORY_LOADED') {
+            chatSessions = Array.isArray(message.payload) ? message.payload : [];
+            renderChatSessionList();
+        }
         else if (message.type === 'CHAT_RESPONSE') {
             const typingIndicator = document.getElementById(message.typingId);
             if (typingIndicator) {
                 typingIndicator.remove();
             }
-            appendMessage(formatBotMessage(message.payload), false);
+            const formattedReply = formatBotMessage(message.payload);
+            appendMessage(formattedReply, false);
+            saveMessageToActiveSession(formattedReply, false);
         }
         else if (message.type === 'FIX_RESPONSE') {
             if (requestId !== message.requestId || currentActiveError?.issue.id !== message.issueId) return;
@@ -246,8 +284,10 @@ document.addEventListener('DOMContentLoaded', () => {
             chatHistory.innerHTML = '';
         }
         
+        homeView.classList.remove('active');
         errorListView.classList.remove('active');
         detailChatView.classList.add('active');
+        detailChatMount.appendChild(chatSection);
         detailContainer.classList.remove('chat-maximized');
         maximizeChatBtn.textContent = '⛶';
         maximizeChatBtn.setAttribute('aria-label', 'Maximize Chat');
@@ -331,7 +371,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     maximizeChatBtn.addEventListener('click', () => {
-        const isMaximized = detailContainer.classList.toggle('chat-maximized');
+        const activeContainer = homeView.classList.contains('active') ? homeContainer : detailContainer;
+        const isMaximized = activeContainer.classList.toggle('chat-maximized');
         maximizeChatBtn.textContent = isMaximized ? '🗗' : '⛶';
         const label = isMaximized ? 'Minimize chat' : 'Maximize chat';
         maximizeChatBtn.setAttribute('aria-label', label);
@@ -343,9 +384,112 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendMsgBtn = document.getElementById('sendMsgBtn');
     const chatHistory = document.querySelector('.chat-history');
     const clearChatBtn = document.getElementById('clearChatBtn');
+    const toggleHistoryBtn = document.getElementById('toggleHistoryBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
+    const chatHistoryDrawer = document.getElementById('chatHistoryDrawer');
+    const chatSessionList = document.getElementById('chatSessionList');
+
+    toggleHistoryBtn.addEventListener('click', () => {
+        chatHistoryDrawer.classList.toggle('open');
+    });
+
+    newChatBtn.addEventListener('click', () => {
+        activeSessionId = null;
+        chatHistory.innerHTML = '';
+        chatHistoryDrawer.classList.remove('open');
+        renderChatSessionList();
+    });
+
     clearChatBtn.addEventListener('click', () => {
         chatHistory.innerHTML = '';
+        if (activeSessionId) {
+            const session = chatSessions.find(s => s.id === activeSessionId);
+            if (session) {
+                session.messages = [];
+                persistChatSessions();
+                renderChatSessionList();
+            }
+        }
     });
+
+    function persistChatSessions() {
+        vscode.postMessage({ command: 'saveChatHistory', payload: chatSessions });
+    }
+
+    function ensureActiveSession(firstPromptText) {
+        if (activeSessionId) {
+            const existing = chatSessions.find(s => s.id === activeSessionId);
+            if (existing) return existing;
+        }
+
+        const newSession = {
+            id: 'chat-' + Date.now(),
+            title: firstPromptText.length > 32 ? firstPromptText.slice(0, 32) + '...' : firstPromptText,
+            issueTitle: currentActiveError?.issue?.title || 'General AODA',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            messages: []
+        };
+
+        chatSessions.unshift(newSession);
+        activeSessionId = newSession.id;
+        return newSession;
+    }
+
+    function saveMessageToActiveSession(htmlContent, isUser, rawText = '') {
+        const session = ensureActiveSession(rawText || 'Chat');
+        session.messages.push({ html: htmlContent, isUser });
+        session.timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        persistChatSessions();
+        renderChatSessionList();
+    }
+
+    function loadChatSession(sessionId) {
+        const session = chatSessions.find(s => s.id === sessionId);
+        if (!session) return;
+
+        activeSessionId = session.id;
+        chatHistory.innerHTML = '';
+        session.messages.forEach(m => appendMessage(m.html, m.isUser));
+        chatHistoryDrawer.classList.remove('open');
+        renderChatSessionList();
+    }
+
+    function deleteChatSession(sessionId, event) {
+        event.stopPropagation();
+        chatSessions = chatSessions.filter(s => s.id !== sessionId);
+        if (activeSessionId === sessionId) {
+            activeSessionId = null;
+            chatHistory.innerHTML = '';
+        }
+        persistChatSessions();
+        renderChatSessionList();
+    }
+
+    function renderChatSessionList() {
+        if (!chatSessionList) return;
+        chatSessionList.innerHTML = '';
+
+        if (chatSessions.length === 0) {
+            chatSessionList.innerHTML = '<div class="history-empty">No past chats yet.</div>';
+            return;
+        }
+
+        chatSessions.forEach(session => {
+            const item = document.createElement('div');
+            item.className = 'history-item' + (session.id === activeSessionId ? ' active' : '');
+            item.innerHTML = `
+                <div class="history-item-content">
+                    <div class="history-item-title">${escapeHTML(session.title)}</div>
+                    <div class="history-item-meta">${escapeHTML(session.issueTitle)} • ${escapeHTML(session.timestamp)}</div>
+                </div>
+                <button class="history-delete-btn" title="Delete chat" aria-label="Delete chat">✕</button>
+            `;
+
+            item.addEventListener('click', () => loadChatSession(session.id));
+            item.querySelector('.history-delete-btn').addEventListener('click', (e) => deleteChatSession(session.id, e));
+            chatSessionList.appendChild(item);
+        });
+    }
 
     function appendMessage(text, isUser) {
         const msgDiv = document.createElement('div');
@@ -359,14 +503,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const text = chatInput.value.trim();
         if (text === '') return;
 
-        appendMessage(escapeHTML(text), true);
+        const safeUserHtml = escapeHTML(text);
+        appendMessage(safeUserHtml, true);
+        saveMessageToActiveSession(safeUserHtml, true, text);
         chatInput.value = '';
-
-        if (!currentActiveError) {
-            appendMessage("Please select an error from the list first.", false);
-            return;
-        }
-
         const typingId = "typing-" + Date.now();
         const typingDiv = document.createElement('div');
         typingDiv.id = typingId;
@@ -374,7 +514,6 @@ document.addEventListener('DOMContentLoaded', () => {
         typingDiv.innerHTML = '<em>Agent is typing...</em>';
         chatHistory.appendChild(typingDiv);
         chatHistory.scrollTop = chatHistory.scrollHeight;
-
         vscode.postMessage({
             command: 'askChatbot',
             text: text,
@@ -382,7 +521,6 @@ document.addEventListener('DOMContentLoaded', () => {
             typingId: typingId
         });
     }
-
     sendMsgBtn.addEventListener('click', sendMessage);
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -405,4 +543,5 @@ document.addEventListener('DOMContentLoaded', () => {
             }[tag])
         );
     }
+    vscode.postMessage({ command: 'getChatHistory' });
 });

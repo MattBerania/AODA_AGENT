@@ -75,19 +75,20 @@ export function registerRepositoryScanning(
 ): void {
   let running = false;
   let previousFiles = new Set<string>();
+  
   const command = api.commands.registerCommand(
     SCAN_REPOSITORY_COMMAND,
     async (): Promise<RepositoryScanResult | undefined> => {
       if (running) {
-        await api.window.showInformationMessage("A repository scan is already running.");
-        return;
+        void api.window.showInformationMessage("A repository scan is already running.");
+        return undefined;
       }
       const folders = api.workspace.workspaceFolders;
       if (!folders || folders.length === 0) {
-        await api.window.showInformationMessage(
+        void api.window.showInformationMessage(
           "Open a workspace folder to discover supported files.",
         );
-        return;
+        return undefined;
       }
 
       running = true;
@@ -102,7 +103,7 @@ export function registerRepositoryScanning(
         const analyzed = result.outcomes.filter((entry) => entry.status === "analyzed").length;
         const skipped = result.outcomes.filter((entry) => entry.status === "skipped").length;
         const findings = result.snapshots.reduce((total, snapshot) => total + snapshot.issues.length, 0);
-        await api.window.showInformationMessage(
+        void api.window.showInformationMessage(
           `OPS AODA: ${files.length} files discovered, ${result.snapshots.length} processed, ` +
           `${findings} confirmed findings, ${result.failures.length} failed. ` +
           `Files attempted ${result.outcomes.length}, analyzed ${analyzed}, skipped ${skipped}. ` +
@@ -110,7 +111,7 @@ export function registerRepositoryScanning(
           "Results cover the implemented static checks. See Problems for findings.",
         );
         if (result.outcomes.some((entry) => entry.status !== "analyzed")) {
-          await api.window.showWarningMessage(
+          void api.window.showWarningMessage(
             "OPS AODA could not process:\n" + result.outcomes.filter((entry) => entry.status !== "analyzed").map((entry) =>
               `${entry.fileUri}: ${entry.reason}`).join("\n"),
           );
@@ -120,9 +121,10 @@ export function registerRepositoryScanning(
         const detail = error instanceof Error
           ? error.message
           : "Unexpected file discovery error.";
-        await api.window.showErrorMessage(
+        void api.window.showErrorMessage(
           `OPS AODA could not scan workspace files: ${detail}`,
         );
+        return undefined;
       } finally {
         running = false;
       }
