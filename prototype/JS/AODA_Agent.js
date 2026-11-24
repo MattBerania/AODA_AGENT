@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    let activeTab = 'home';
     let currentActiveError = null;
     let chatSessions = [];
     let activeSessionId = null;
@@ -6,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let proposalId;
     //VSCODE API FOR GITHUB COPILOT
     const vscode = acquireVsCodeApi();
+
+    const savedState = vscode.getState() || {};
 
     //VIEWS
     const homeView = document.getElementById('home-view');
@@ -413,6 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function persistChatSessions() {
+        vscode.setState({ draft: chatInput.value, activeSessionId });
         vscode.postMessage({ command: 'saveChatHistory', payload: chatSessions });
     }
 
@@ -448,6 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!session) return;
 
         activeSessionId = session.id;
+        vscode.setState({ draft: chatInput.value, activeSessionId });
         chatHistory.innerHTML = '';
         session.messages.forEach(m => appendMessage(m.html, m.isUser));
         chatHistoryDrawer.classList.remove('open');
@@ -507,6 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appendMessage(safeUserHtml, true);
         saveMessageToActiveSession(safeUserHtml, true, text);
         chatInput.value = '';
+        vscode.setState({ draft: '', activeSessionId });
         const typingId = "typing-" + Date.now();
         const typingDiv = document.createElement('div');
         typingDiv.id = typingId;
@@ -543,5 +549,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }[tag])
         );
     }
+    chatInput.value = savedState.draft || '';
+    activeSessionId = savedState.activeSessionId || null;
+    chatInput.addEventListener('input', () => vscode.setState({ draft: chatInput.value, activeSessionId }));
+    vscode.postMessage({ command: 'ready' });
     vscode.postMessage({ command: 'getChatHistory' });
 });

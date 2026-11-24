@@ -615,3 +615,21 @@ details.repo-folder-accordion > summary.repo-folder-summary {
     height: 100%;
     flex: 1;
 }
+/* Sidebar controls and source text must fit narrow views. */
+* { box-sizing: border-box; }
+#app-container, .view-panel, .chat-mount, .chat-section, .chat-history,
+.chat-header-left, .chat-msg, .repo-file-link { min-width: 0; }
+.code-block, .error-code-link, .error-description, .chat-msg,
+.repo-file-link, summary { overflow-wrap: anywhere; }
+.ui-toolbar, .code-header, .code-actions, .chat-header { flex-wrap: wrap; }
+.ui-toolbar { flex-shrink: 0; }
+.toolbar-btn { flex: 1 1 100px; }
+.chat-input-area { flex-wrap: wrap; }
+.chat-input-area input { flex: 1 1 100%; margin-right: 0; }
+@media (max-width: 400px) {
+    .scrollable-content { padding: 10px; }
+    .chat-history, .chat-header { padding: 8px; }
+    .chat-msg { max-width: 100%; padding: 8px; }
+    .code-header { align-items: flex-start; gap: 8px; }
+    .repo-folder-accordion, .repo-file-list { margin-left: 6px; }
+}

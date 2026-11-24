@@ -1,432 +1,78 @@
 # OPS AODA Agent
 
-VS Code extension with an independent TypeScript source scanner. The scanner
-implements six structural rules **`image-text-alternative`,
-`button-name`, `link-name`, `document-language`, `iframe-name`, and
-`form-control-name`** and an **`inline-text-contrast`** review check for HTML.
+OPS AODA Agent is a VS Code extension that helps developers find and fix common
+accessibility issues in HTML and ASP.NET Razor (`.cshtml`) source, including
+legacy applications. It highlights findings in the Problems panel and provides
+remediation guidance tied to WCAG criteria.
 
-## Run and verify
+## Run locally
 
-```powershell
-npm ci
-npm run typecheck
-npm test
-```
+Open this repository in VS Code 1.95 or newer with Node.js and npm available.
+Run `npm ci` from the repository root, then press F5 using **Run OPS AODA Agent**.
+VS Code builds the extension and opens the bundled demo workspace in an
+Extension Development Host. You can scan the fixtures without an ASP.NET server.
 
-`npm test` compiles TypeScript into the ignored `dist/` directory, then runs
-focused tests using Node's built-in test runner. No test framework is installed.
-Command tests simulate the VS Code API while running the real scanner. They
-cover editor-buffer reads, document URIs, diagnostic ranges and error handling.
-The Extension Development Host is a separate manual check.
+## Try the demo
 
-`tests/fixtures/` contains synthetic full-page HTML examples and a Razor view.
-The fixture tests exercise all six structural rules together, check that reported ranges
-select the expected original tags, and verify repeated calls with changed source
-clear resolved findings. Production legacy ASP.NET files still need validation.
+1. Open [01_service_portal.html](tests/aoda_test_pack/01_service_portal.html) in the
+   demo workspace. Open the Command Palette and run **OPS AODA: Scan Current Page**.
+   The Problems panel should show six findings for this file.
+2. Run **OPS AODA: Show Scan Issues** and pick the unnamed button. VS Code selects
+   the source tag and shows remediation guidance in the **OPS AODA Issues** output.
+3. Add `Search` between the submit button's opening and closing tags. Pause
+   briefly and watch the file's count drop to five without saving. Undo the edit.
+4. Run **OPS AODA: Scan Repository**. The sample workspace should report five
+   analyzed files and 16 diagnostics, including four contrast warnings.
 
-After building, try it from the repository root:
+## Commands
 
-```powershell
-@'
-const { scanAccessibility } = require("./dist/accessibility/scanner.js");
-console.log(scanAccessibility("<img>", "file:///example.html"));
-'@ | node
-```
-
-Or call it from TypeScript:
-
-```typescript
-import { scanAccessibility } from "./accessibility/scanner";
-
-const findings = scanAccessibility('<img src="logo.png">', 'file:///example.html');
-```
-
-The function accepts original source text and a serialized file URI; it performs
-no file I/O and has no VS Code dependency. The caller is responsible for selecting
-supported `.html` and `.cshtml` files. Scan again with updated source when needed;
-there is no cached state.
-
-## Current-page scanning in VS Code
-
-Use VS Code 1.95 or newer. Install dependencies with `npm ci`, then press F5
-using the `Run OPS AODA Agent` launch configuration. The build task compiles the
-extension and opens an Extension Development Host window.
-
-1. In that window, open `tests/fixtures/legacy/contact.cshtml`.
-2. Keep the document active and run **OPS AODA: Scan Current Page** from the
-   Command Palette (`Ctrl+Shift+P`).
-3. Open Problems (`Ctrl+Shift+M`). Expect five findings and click them to inspect
-   the matching opening tags.
-4. Make an unsaved edit and invoke the command to scan the editor's current text.
-   Each invocation displays a snapshot for the requested page.
-5. Open `_Layout.cshtml` or `orders.cshtml` in the same fixture directory. Their
-   unsupported Razor produces zero findings and a message mentioning skipped
-   markup. Expected fixture results are documented in that directory's README.
-
-The active supported document is scanned automatically after a 400 ms typing
-pause and after switching pages. Files are selected by `.html` or `.cshtml` extension
-(case-insensitive), independently of the editor's language mode. A supported name
-can also be scanned through a remote or untitled document URI. An unnamed
-`Untitled-1` document is rejected until it has a supported filename.
-
-The editor integration uses these files:
-
-- `src/extension.ts` exports `activate()` and passes the VS Code API and context
-  to `registerCurrentPageScanning()` and `registerIssuePresentation()`. It returns
-  the scanner integration API to extension consumers.
-- `src/currentPageScanning.ts` registers `opsAoda.scanCurrentPage`, reads
-  `activeTextEditor.document.getText()` and `uri.toString()`, calls the scanner,
-  and converts each shared issue into a VS Code diagnostic. The handler returns
-  `AccessibilityIssue[]` to command callers. Disposables are registered with the
-  extension context for cleanup. The API parameter lets Node tests exercise the
-  real command handler through a simulated host. `scanDocument()` is the shared
-  operation for manual, automatic and consumer-requested scans.
-- `src/issuePresentation.ts` registers an issue picker and occurrence navigation,
-  displays metadata and source text, and rejects stale source versions.
-- `src/types/scannerIntegration.ts` defines the read-only scan snapshot, issue
-  context and integration API contracts.
-
-The existing `scanAccessibility()` and shared types remain independent of VS
-Code. The command uses URI paths to identify supported extensions and preserves
-the full serialized URI in findings. Source ranges map directly to `vscode.Range`
-without changing their zero-based coordinates.
-
-The local extension identifier is `ops-aoda-local.ops-aoda-agent`.
-`ops-aoda-local` is a development publisher placeholder. Marketplace publishing
-would require the team's registered publisher identifier.
-
-## Automatic refresh
-
-The extension activates after VS Code startup and schedules the current supported
-document for scanning. `onDidChangeTextDocument` schedules another scan when the
-active editor's content changes. `scheduleScan()` cancels the previous timeout
-and starts one 400 ms timeout. Each further edit restarts the delay. The callback
-checks that its document is still open and active, then reads the latest buffer.
-No timer repeats itself after scanning.
-
-Edits immediately clear outdated diagnostics, issue contexts and displayed
-details. Consumers receive `onDidChangeScan(undefined)` when a snapshot is
-invalidated, followed by the new snapshot after the typing pause. Background-file
-edits and notifications without content changes are ignored. Switching pages
-cancels pending work, clears the previous page and schedules the supported new
-page. Closing a scanned document clears its results. Disposal removes listeners
-and cancels pending work.
-
-Automatic scans update Problems and subscribers without success notifications.
-The manual command still scans immediately and shows its result summary. It
-cancels pending automatic work to avoid duplicate scans. After an approved edit,
-the extension calls `scanner.refreshDocument(targetDocument)`. This scans the
-edited buffer even if the developer has switched editors. A pending automatic
-scan of another file keeps its original timer.
-
-Tests use Node's simulated timers to verify the debounce delay, timer resets,
-file switches, disposal, source ranges and immediate post-edit refresh.
-
-## Scanner-side integration
-
-After running **OPS AODA: Scan Current Page**, run **OPS AODA: Show Scan Issues**
-from the Command Palette. Choose a finding to select its source range and display
-the catalog description, remediation guidance, source snippet and scan-time
-document version in the **OPS AODA Issues** Output channel.
-
-The integration API returned by `activate()` exposes:
-
-| Member | Purpose |
+| Command Palette action | What it does |
 | --- | --- |
-| `getLatestScan()` | Latest snapshot, or `undefined` before a scan or after invalidation/failure |
-| `onDidChangeScan` | Event fired after diagnostics and snapshot are published, or with `undefined` on invalidation/failure |
-| `getIssueContext(issueId)` | Latest occurrence plus rule metadata, original source text and document version |
-| `refreshCurrentPage()` | Immediately refresh the supported active document and return its snapshot |
-| `refreshDocument(document)` | Scan a specific open buffer and return its snapshot, including skipped or failed outcomes |
+| **OPS AODA: Scan Current Page** | Scans the current HTML or Razor buffer. The active supported file also rescans after a brief typing pause or when you switch to it. |
+| **OPS AODA: Scan Repository** | Scans supported files across the open workspace and reports analyzed, skipped, and failed files. |
+| **OPS AODA: Show Scan Issues** | Opens a finding from the current page's scan and displays its source and remediation guidance. |
+| **OPS AODA: Open Agent UI** | Opens the Activity Bar sidebar for scan findings and optional GitHub Copilot assistance. With a Copilot model available, you can review and approve proposed edits for structural findings. |
 
-A snapshot contains the serialized file URI, document version and read-only
-issues. Snapshots and nested metadata are copied and frozen so consumers cannot
-change each other's results. Successful scans replace prior contexts, including
-when the new result is empty. Unsupported-file requests leave the prior snapshot
-intact unless an editor event has already invalidated it. Unknown or superseded
-occurrence IDs return `undefined`.
+## Activity Bar sidebar integration
 
-Components inside this extension can receive the same `scanner` instance created
-in `activate()`. A separate VS Code extension can activate this extension and
-consume its exported API, using the integration types from this repository:
+The Activity Bar shield-and-check opens the existing agent interface. **OPS AODA:
+Open Agent UI** focuses the same sidebar; it does not create an editor panel.
 
-```typescript
-import * as vscode from "vscode";
-import type { ScannerIntegration } from "./types/scannerIntegration";
+| Contribution | Stable identifier |
+| --- | --- |
+| Activity Bar container | `opsAoda` |
+| Webview view | `opsAoda.agentSidebar` |
 
-const extension = vscode.extensions.getExtension<ScannerIntegration>(
-  "ops-aoda-local.ops-aoda-agent",
-);
-if (!extension) throw new Error("OPS AODA Agent is unavailable");
-const scanner = await extension.activate();
+`registerAgentUI()` returns the single provider used by `registerAgentSidebar()`.
+It loads the existing `prototype/` assets and handles scan, chat, and fix messages.
+The browser sends `ready` after installing its listeners. Responses received while
+hidden are queued until the view is visible. Context is retained during Activity
+Bar switching, preserving navigation, draft text, and pending fix review at the
+cost of keeping this webview in memory. Chat history remains in workspace state;
+draft text and the active chat session also use webview state. Explicit disposal
+clears pending approvals and listeners. A new view starts fresh findings/navigation
+and requires a new fix review; it never restores approval authority from browser state.
 
-console.log(scanner.getLatestScan()?.issues ?? []);
-context.subscriptions.push(scanner.onDidChangeScan((snapshot) => {
-  console.log(snapshot?.issues ?? []);
-}));
-```
+F5 smoke checks: open the sidebar at a narrow width, scan a demo page and the
+repository, select a finding, review/copy/apply a suggestion, and send a chat
+message if Copilot is available. Type a draft, switch to Explorer and back, resize,
+and confirm the draft and selected view remain. Run **Open Agent UI** and confirm
+it reveals the same interface. Use disposable fixture edits and undo afterward.
 
-The existing `opsAoda.scanCurrentPage` command still returns `AccessibilityIssue[]`
-to callers. `opsAoda.showIssue` accepts an occurrence ID for programmatic issue
-navigation. The `context` in the example is the consuming extension's activation
-context, and the type import path must point to its copy of the shared contract.
+## Scan coverage
 
-Issue presentation checks both the current document version and original source
-snippet before navigating. It rejects results that became outdated during a
-picker interaction or document open. Scan events clear previously displayed
-details. Subscribers should compare the captured `documentVersion` and source
-before preparing any future edit. Findings always carry the version of the
-source that produced them.
+The structural checks look for missing image text alternatives, accessible names
+for buttons, links, iframes and form controls, and a missing page language
+declaration. A separate HTML check flags some low-contrast inline colour pairs
+for review.
 
-In **AODA Agent UI**, selecting a structural finding requests a GitHub Copilot proposal.
-Review the target URI, line, original opening tag and suggested replacement.
-**Apply fix** approves that proposal once. Reopening a finding requests a new
-proposal. If Copilot cannot return a changed opening tag for the same element,
-the panel explains the problem and offers no edit.
+Unsupported Razor or malformed markup can cause an explicit file skip. A scan
+with zero findings means the implemented checks found nothing in the analyzed
+source. AODA and WCAG compliance still require review of the rendered page.
 
-**Verified** means the target buffer matched the approved edit and a fresh scan
-no longer reported that finding at its location. **Applied** means the buffer
-matched, with the scan outcome shown separately. **Unverified** means VS Code
-accepted the edit but the buffer could not be confirmed. A rejected approval
-or failed edit requires a fresh proposal before retrying.
+## Verify and contribute
 
-Manual verification in the Extension Development Host:
-
-1. Scan `tests/fixtures/legacy/contact.cshtml`, then run **Show Scan Issues**.
-2. Select one of the five findings and check the selected source tag and Output
-   channel description/remediation.
-3. Add `alt="Office"` to the first image and pause briefly. Expect the finding
-   count to drop from five to four automatically, and any old detail text to clear.
-4. Undo the edit and pause. Expect five findings again. Switch to an unsupported
-   file and verify the prior page's results clear.
-
-Automated tests simulate VS Code and exercise the real scanner, snapshot events,
-metadata handoff, selection, disposal and stale-result races. The presentation
-controls and automatic refresh still need their manual host check.
-
-## How the detectors work
-
-1. Supported leading directives in `.cshtml` files are masked with spaces.
-2. `parse5` parses the analysis copy with source locations enabled.
-3. Safety gates exclude malformed HTML and unsupported Razor syntax.
-4. Supported native HTML elements are inspected once per rule and source position.
-5. Findings copy metadata from the existing rule catalog via `getRule`.
-
-### Inline text contrast
-
-The scanner reviews ordinary direct text in HTML paragraphs with a quoted
-inline style containing one `color` and one `background-color` declaration.
-Values must be opaque `#rgb` or `#rrggbb`. It skips styles with additional or
-duplicate declarations, nested markup, styled ancestors, and documents with
-detectable stylesheets. HTML `<style>` blocks containing at-rules still allow
-the structural checks to run.
-
-For a declared pair below 3:1, the scanner highlights the foreground token and
-reports both colours and their ratio as a review warning. It uses the unrounded
-ratio for the threshold. Review the rendered colours and text size before
-assessing WCAG 1.4.3. Normal text generally requires 4.5:1, and large text
-generally requires 3:1. [W3C guidance on Contrast (Minimum)](https://www.w3.org/WAI/WCAG20/Understanding/contrast-minimum.html)
-
-Review contrast warnings in VS Code Problems after a current-page or repository scan.
-
-Any `alt` attribute, including `alt=""`, is accepted. Non-empty `aria-label`,
-`aria-labelledby`, and `title` are also recognized. Referenced IDs and alternative
-text quality are not validated. Dynamic naming values are unresolved rather than
-assumed invalid. Empty or whitespace-only ARIA values alone do not supply a name.
-
-Explicitly hidden elements/ancestors (`hidden`, `aria-hidden="true"`), image roles
-`none`/`presentation`, inert template contents, and server-processed elements or
-ancestors (`runat`, `asp-*`) are skipped conservatively. This does not verify the
-validity of those declarations. Comments, scripts and styles are not scanned as
-HTML image markup. Stylesheet visibility and generated markup are not analyzed.
-
-### Button names
-
-The `button-name` detector checks native `<button>` elements. It recognizes
-non-empty `aria-label`, `aria-labelledby`, or `title`, nested text, and non-empty
-child-image alternatives. It does not resolve ARIA references or implement the
-full browser accessible-name computation. Empty/whitespace-only text and `alt=""`
-on a child image do not supply a button name. A button with `aria-label="Close"`
-can contain a decorative image with `alt=""` without either rule reporting it.
-
-Comments, script/style/template contents and explicitly hidden descendants do
-not contribute naming text. Presentation roles on text containers do not hide
-their text. CSS visibility, pseudo-element content, JavaScript mutations and
-rendered browser behavior are not evaluated, so findings describe the supported
-static markup subset.
-
-Conservative skips include unclosed buttons, changed roles, dynamic attributes,
-SVG/custom-element content, embedded controls, and server-processed descendants.
-Associated HTML labels (`for`/`id` or wrapping labels) are recognized as possible
-names, but their content is not validated yet. A child image without `alt` is
-left to the image rule: browser filename fallback makes the button name uncertain.
-Simple dotted Razor button text such as `@Model.ButtonText` is treated as a
-possible runtime name. Its runtime value and naming quality are not validated.
-
-Input buttons and non-native `role="button"` elements are outside this increment.
-
-### Link names
-
-The `link-name` detector checks native `<a>` elements with an `href` attribute,
-including empty `href` and fragment-only destinations. Anchors without `href`
-and custom `role="link"` elements are outside this detector. It reuses the button
-content-naming helper for nested text, non-empty ARIA naming/title attributes,
-child-image alternatives, hidden descendants and conservative uncertainty skips.
-HTML labels are not naming mechanisms for hyperlinks.
-
-A complete simple Razor destination such as `href="@Model.HelpUrl"` is supported:
-its runtime value is unknown, but it supplies no link name. An otherwise empty
-link still receives a finding. Simple `@Model.HelpText` link text is treated as
-an uncertain runtime name. Method-call URLs and Tag Helpers remain subject to
-the existing skips. Non-empty ARIA references are
-recognized without resolving their targets. Link wording such as "Read more"
-is not judged for purpose or quality; this is a missing-name check only.
-
-Link and image rules remain independent. A named link containing an image without
-an alternative receives an image finding. An unnamed link containing only
-`<img alt="">` receives a link finding. A child image missing `alt` makes the link
-name uncertain because of possible filename fallback; only the image is reported.
-The shared content-naming helper retains the documented button limitations,
-including no CSS or browser accessible-name computation.
-
-### Document language
-
-The `document-language` detector reports an explicit `<html>` opening tag with
-a missing or whitespace-only `lang` attribute. Any nonblank value, including a
-supported simple Razor value such as `lang="@Model.Language"`, avoids a finding.
-Language-tag validity and whether the declaration matches the page content are
-not checked. This scanner parses HTML, not XHTML; it checks `lang`, not `xml:lang`.
-
-parse5 can create an implicit HTML root for fragments, so this detector requires
-a source-backed opening tag. A Razor view without `<html>` receives no language
-finding: its shared layout may declare the language. Existing malformed-input,
-unsupported-Razor and server-processing skips still apply. Findings cover the
-original opening tag and reuse catalog metadata for WCAG 3.1.1.
-
-### Iframe names
-
-The `iframe-name` detector checks native `<iframe>` elements for a non-empty
-`title`, `aria-label`, or `aria-labelledby`. Blank values receive a finding when
-no other recognized naming attribute is present. Referenced labels and naming
-quality are not validated. Supported simple Razor naming values are treated as
-unresolved, while a dynamic `src` alone still leaves the frame unnamed.
-
-Fallback text between iframe tags, `name`/`id`, and a title inside `srcdoc` do not
-supply the iframe's accessible name. Embedded document content is not scanned.
-Explicitly hidden elements, server processing, changed roles and dynamic
-`aria-hidden` on the iframe are skipped conservatively. Existing whole-file HTML
-parse-error and unsupported-Razor skips apply. Findings cover the opening tag
-and use the existing WCAG 4.1.2 catalog metadata.
-
-### Form control names
-
-The `form-control-name` detector checks ordinary input fields, selects and
-textareas. It recognizes nonblank ARIA naming/title attributes, exact `for`/`id`
-label associations, and wrapping labels. Explicit labels may precede or follow
-the field. Label content uses the existing content-naming helper with the field
-itself excluded, so input values, textarea contents and selected option text do
-not supply label text. Multiple associated labels are checked until one provides
-text or uncertainty. Empty labels alone still produce findings.
-
-Supported input types are text (including omitted/empty type), password, email,
-search, tel, url, number, checkbox, radio, file, range, color, date, datetime-local,
-month, time and week. Hidden, button, submit, reset, image, unknown and dynamic
-input types are skipped. Disabled and readonly fields remain in scope.
-
-Dynamic IDs, label targets, roles, custom-element ancestors and other runtime
-attributes are handled conservatively. Duplicate field IDs and hidden or
-server-processed associated labels are unresolved. Complex label content retains
-the content helper's uncertainty skips. CSS visibility is not evaluated.
-
-Following the project's requested labeling policy, placeholder-only fields
-receive a finding for lacking a recognized label. Browsers can use placeholder
-text as a fallback accessible name, so this policy does not claim their computed
-browser name is empty. The detector checks source naming mechanisms without
-implementing the full browser accessible-name algorithm.
-
-Ranges cover the complete opening tag in the **original source**, using zero-based
-lines and UTF-16 characters with an exclusive end. parse5's one-based line/column
-positions are converted by subtracting one. LF, CRLF, CR and emoji are tested.
-Findings are returned in source order. IDs serialize `[fileUri, ruleId,
-startOffset, endOffset]` as JSON: distinct occurrences have distinct IDs, and an
-unchanged source produces the same IDs. Edits that move an occurrence change its
-ID; these are not persistent identities across document versions.
-
-## Parser and Razor limits
-
-parse5 was chosen for HTML parsing behavior, source locations and TypeScript
-types. Version 7 supports this project's CommonJS/Node16 module settings. It adds
-one direct runtime dependency and its transitive entity-decoding dependency.
-htmlparser2 offers speed and source indices but takes HTML parsing shortcuts;
-regex alone would require maintaining HTML tokenization and quoting logic.
-Neither library parses Razor.
-
-The Razor attribute subset permits complete quoted attribute values of the
-form `@identifier` or `@identifier.property`, including longer property chains.
-For example, `src="@Model.ImageUrl" alt="@Model.ImageDescription"` is supported;
-the runtime values are not evaluated. A dynamic `src` alone still lacks an
-alternative.
-
-For `.cshtml` file URIs, `src/accessibility/razor.ts` masks standalone directives
-in the leading header before parsing:
-
-```cshtml
-@model MyApp.Models.ProductViewModel
-@using MyApp.Models
-@inherits MyApp.BaseView
-@namespace MyApp.Views
-
-<img src="@Model.ImageUrl">
-```
-
-Each directive must use a simple or dotted ASCII name. Indentation, blank lines,
-an initial BOM and an optional trailing semicolon on `@using` are supported.
-Generic types, aliases, inline comments, and multiline directives are not.
-Masking stops at the first line that is neither blank nor a supported directive,
-so directive-like text inside HTML attributes, comments or scripts is not masked.
-It replaces each directive character with a space, preserving source length and
-LF/CRLF/CR line endings. Findings and IDs therefore retain original positions.
-The source is never edited. `.html` inputs do not receive directive masking.
-
-Common ASCII email literals, such as `support@example.com`, are accepted in HTML
-text and quoted attribute values in both `.html` and `.cshtml` files. This does
-not enable arbitrary literal at signs or email-like strings inside scripts,
-styles, comments, inert templates or C# blocks.
-
-In `.cshtml` files, simple dotted `@Model.Property` expressions (including longer
-property chains) are also accepted in text inside explicit HTML elements. The
-expression must end at the text boundary or whitespace, comma, semicolon, colon
-or exclamation mark. Calls, indexers, null-conditional access, other expression
-roots and compound attribute values remain unsupported. Text expressions are
-left unchanged for parsing, preserving source positions. A dynamic name is
-uncertain: no missing-name error is inferred, and its runtime accessibility is
-not validated. Unrelated static findings are still reported. The combined
-`tests/fixtures/simple-expressions.cshtml` fixture demonstrates this behavior,
-including conservative exclusions for Tag Helper labels and inputs.
-
-**Any remaining unsupported `@` occurrence causes the entire source to be
-skipped.** This includes directives outside the supported leading header, Razor
-comments, C# blocks (including `@using (...) { ... }`), helpers, method calls,
-interpolated attribute values, and ambiguous literal at signs. Conditional and
-loop blocks (`@if`, `@foreach`) still cause explicit whole-file skips. Tag-helper
-directives such as `@addTagHelper` remain unsupported because they can change
-rendered markup. This is still a limited source-analysis subset of Razor.
-
-HTML parse errors also cause a whole-file skip, except for a missing doctype
-(normal in fragments). Ordinary omitted container end tags accepted by the HTML
-parser can still be scanned. The scanner uses an HTML document parse, so it does
-not model every context in which a fragment might later be inserted.
-
-The current `AccessibilityIssue[]` interface cannot distinguish skipped source
-from source without findings. Consumers must preserve that limitation in their
-wording; a future richer scan result could expose coverage information.
-
-These are partial automated checks. An empty result does **not** establish WCAG
-or AODA compliance. The explicit current-page command displays diagnostics in
-Problems and refreshes the active supported document after edits. The structural
-rules and inline contrast check have focused tests for their documented subsets.
-
-## Next increments
-
-Verify the command in the Extension Development Host, validate production legacy
-application files when available, and expand safe Razor coverage as needed.
+Run `npm run typecheck` and `npm test` from the repository root. See the
+[scanner reference](docs/scanner-reference.md) for detection limits, scan
+outcomes, and integration contracts. See the
+[legacy Razor fixtures](tests/fixtures/legacy/README.md) for additional smoke checks.

@@ -1,3 +1,4 @@
+import { AGENT_SIDEBAR_VIEW_ID } from "./agentSidebar";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type * as VSCode from "vscode";
@@ -40,12 +41,14 @@ async function handleChatPrompt(
             api.LanguageModelChatMessage.User(userText),
         ];
         const tokenSource = new api.CancellationTokenSource();
-        const response = await model.sendRequest(messages, {}, tokenSource.token);
-        let fullReply = "";
-        for await (const chunk of response.text) {
-            fullReply += chunk;
-        }
-        return fullReply;
+        try {
+            const response = await model.sendRequest(messages, {}, tokenSource.token);
+            let fullReply = "";
+            for await (const chunk of response.text) {
+                fullReply += chunk;
+            }
+            return fullReply;
+        } finally { tokenSource.dispose(); }
     } catch (err) {
         if (err instanceof api.LanguageModelError) {
             console.error("Copilot LM Error:", err.message, err.code);
@@ -118,20 +121,25 @@ export function registerAgentUI(
     api: typeof VSCode,
     context: VSCode.ExtensionContext,
     scanner: ScannerIntegration,
-): void {
-    let panel: VSCode.WebviewPanel | undefined;
+): VSCode.WebviewViewProvider {
+    let panel: VSCode.WebviewView | undefined;
+    let ready = false;
+    let pendingSelection: IssueContext | undefined;
+    let cleanupView = () => {};
+    let send = (_message: unknown): void => {};
     const CHAT_HISTORY_KEY = "aodaAgent.chatHistory";
     let showRepository = false;
+    let hasResized = false;
 
     function updateWebview() {
-        if (!panel || showRepository) {
+        if (!panel || !ready || showRepository) {
             return;
         }
         const snapshot = scanner.getLatestScan();
 
         if (!snapshot) {
             if (api.window.activeTextEditor) {
-                panel.webview.postMessage({ type: "SCAN_RESULTS", payload: [], status: "pending" });
+                send({ type: "SCAN_RESULTS", payload: [], status: "pending" });
             }
             return;
         }
@@ -139,7 +147,7 @@ export function registerAgentUI(
         const payload = snapshot.issues
             .filter(isAgentIssue)
             .map(issue => scanner.getIssueContext(issue.id));
-        panel.webview.postMessage({
+        send({
             type: "SCAN_RESULTS",
             payload,
             status: snapshot.status,
@@ -147,24 +155,18 @@ export function registerAgentUI(
         });
     }
 
-    const command = api.commands.registerCommand(OPEN_AGENT_UI_COMMAND, () => {
+    const command = api.commands.registerCommand(OPEN_AGENT_UI_COMMAND, () =>
+        api.commands.executeCommand(`${AGENT_SIDEBAR_VIEW_ID}.focus`));
+
+    const provider: VSCode.WebviewViewProvider = { resolveWebviewView(view) {
+        cleanupView();
+        panel = view;
+        ready = false;
         showRepository = false;
-        if (panel) {
-            panel.reveal(api.ViewColumn.Beside, true);
-            setTimeout(() => { updateWebview(); }, 250);
-            return;
-        }
-
-        panel = api.window.createWebviewPanel(
-            'aodaAgentUI',
-            'AODA Agent UI',
-            { viewColumn: api.ViewColumn.Beside, preserveFocus: true },
-            {
-                enableScripts: true,
-                localResourceRoots: [api.Uri.file(join(context.extensionPath, 'prototype'))]
-            }
-        );
-
+        view.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [api.Uri.file(join(context.extensionPath, 'prototype'))],
+        };
         const htmlPath = join(context.extensionPath, 'prototype', 'index.html');
         let html = readFileSync(htmlPath, 'utf8');
         const cssUri = panel.webview.asWebviewUri(api.Uri.file(join(context.extensionPath, 'prototype', 'CSS', 'AODA.css')));
@@ -172,24 +174,59 @@ export function registerAgentUI(
         html = html.replace('CSS/AODA.css', cssUri.toString());
         html = html.replace('JS/AODA_Agent.js', jsUri.toString());
 
-        panel.webview.html = html;
         const owner = panel;
         let repositoryScanRunning = false;
         const proposals = createFixProposals(api, scanner, details => generateAiFix(api, details));
-        panel.onDidDispose(() => {
-            proposals.clear();
-            panel = undefined;
+        const queued: unknown[] = [];
+        send = message => {
+            if (panel !== owner) return;
+            if (!ready || !owner.visible) queued.push(message);
+            else void owner.webview.postMessage(message);
+        };
+        const visibility = owner.onDidChangeVisibility(() => {
+            if (!owner.visible || !ready) return;
+            for (const message of queued.splice(0)) void owner.webview.postMessage(message);
+            updateWebview();
         });
+        let closed = false;
+        const disposed = owner.onDidDispose(() => cleanupView());
+        cleanupView = () => {
+            if (closed) return;
+            closed = true;
+            proposals.clear();
+            queued.length = 0;
+            receiver.dispose();
+            visibility.dispose();
+            disposed.dispose();
+            if (panel === owner) { panel = undefined; ready = false; }
+        };
 
-        panel.webview.onDidReceiveMessage(async (message) => {
+        const receiver = panel.webview.onDidReceiveMessage(async (message) => {
             if (!message || typeof message !== 'object' || panel !== owner) return;
             switch (message.command) {
+                case 'ready': {
+                    ready = true;
+                    for (const item of queued.splice(0)) send(item);
+                    updateWebview();
+                    if (pendingSelection) {
+                        send({ type: 'SELECT_ISSUE', payload: pendingSelection });
+                        pendingSelection = undefined;
+                    }
+                    if (!hasResized) {
+                        for (let i = 0; i < 3; i++) {
+                            await api.commands.executeCommand('workbench.action.decreaseViewWidth');
+                        }
+                        hasResized = true;
+                    }
+
+                    break;
+                }
                 case 'askChatbot': {
                     const { text, context: errorContext, typingId } = message;
                     const botReply = await handleChatPrompt(api, text, errorContext);
 
                     if (panel !== owner) break;
-                    panel.webview.postMessage({
+                    send({
                         type: 'CHAT_RESPONSE',
                         payload: botReply,
                         typingId: typingId
@@ -201,7 +238,7 @@ export function registerAgentUI(
                     const { issueId, documentVersion, requestId } = message;
                     const result = await proposals.generate(issueId, documentVersion);
                     if (result && panel === owner) {
-                        void owner.webview.postMessage({ type: 'FIX_RESPONSE', issueId, requestId, ...result });
+                        void send({ type: 'FIX_RESPONSE', issueId, requestId, ...result });
                     }
                     break;
                 }
@@ -217,7 +254,7 @@ export function registerAgentUI(
                         ? await proposals.approve(proposalId)
                         : { status: 'rejected', message: 'Approval must contain only the proposal identifier.' };
                     if (panel === owner) {
-                        void owner.webview.postMessage({ type: 'FIX_RESULT', proposalId, ...result });
+                        void send({ type: 'FIX_RESULT', proposalId, ...result });
                     }
                     break;
                 }
@@ -238,7 +275,7 @@ export function registerAgentUI(
                             SCAN_REPOSITORY_COMMAND);
                         if (panel !== owner || !showRepository) break;
                         if (!result) {
-                            void owner.webview.postMessage({
+                            void send({
                                 type: 'REPO_SCAN_RESULTS',
                                 message: 'Repository scan unavailable. See VS Code notifications for details.',
                             });
@@ -262,11 +299,11 @@ export function registerAgentUI(
                                 }
                             }
                         }
-                        void owner.webview.postMessage({ type: 'REPO_SCAN_RESULTS', payload });
+                        void send({ type: 'REPO_SCAN_RESULTS', payload });
                     } catch (error) {
                         console.error('Repository scan error:', error);
                         if (panel === owner && showRepository) {
-                            void owner.webview.postMessage({
+                            void send({
                                 type: 'REPO_SCAN_RESULTS',
                                 message: 'Error scanning repository.',
                             });
@@ -279,7 +316,7 @@ export function registerAgentUI(
 
                 case 'getChatHistory': {
                     const history = context.workspaceState.get<any[]>(CHAT_HISTORY_KEY, []);
-                    panel?.webview.postMessage({
+                    send({
                         type: 'CHAT_HISTORY_LOADED',
                         payload: history
                     });
@@ -293,8 +330,8 @@ export function registerAgentUI(
             }
         });
 
-        setTimeout(() => { updateWebview(); }, 250);
-    });
+        panel.webview.html = html;
+    } };
 
     const selectionListener = api.window.onDidChangeTextEditorSelection(async (event) => {
         if (event.kind !== api.TextEditorSelectionChangeKind.Mouse) {
@@ -317,28 +354,24 @@ export function registerAgentUI(
         const issueCtx = scanner.getIssueContext(matchedIssue.id);
         if (!issueCtx) return;
 
-        const wasClosed = !panel;
-        if (wasClosed) {
+        if (!panel || !ready) {
+            pendingSelection = issueCtx;
             await api.commands.executeCommand(OPEN_AGENT_UI_COMMAND);
         } else {
-            panel?.reveal(api.ViewColumn.Beside, true);
+            panel.show(true);
+            send({ type: 'SELECT_ISSUE', payload: issueCtx });
         }
-
-        setTimeout(() => {
-            panel?.webview.postMessage({
-                type: "SELECT_ISSUE",
-                payload: issueCtx,
-            });
-        }, wasClosed ? 350 : 0);
     });
 
     let timeoutId: NodeJS.Timeout;
     context.subscriptions.push(
         command,
+        { dispose() { clearTimeout(timeoutId); cleanupView(); pendingSelection = undefined; } },
         selectionListener,
         scanner.onDidChangeScan(() => {
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => { updateWebview(); }, 300);
         })
     );
+    return provider;
 }

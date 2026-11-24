@@ -11,6 +11,25 @@
   "categories": ["Linters"],
   "activationEvents": ["onStartupFinished"],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opsAoda",
+          "title": "OPS AODA Agent",
+          "icon": "resources/ops-aoda-agent.svg"
+        }
+      ]
+    },
+    "views": {
+      "opsAoda": [
+        {
+          "type": "webview",
+          "id": "opsAoda.agentSidebar",
+          "name": "OPS AODA Agent",
+          "icon": "resources/ops-aoda-agent.svg"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "opsAoda.scanCurrentPage",
@@ -37,7 +56,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/scanner.test.cjs tests/inlineContrast.test.cjs tests/currentPageScanning.test.cjs tests/repositoryScanning.test.cjs tests/scanResults.test.cjs tests/fixProposals.test.cjs"
+    "test": "npm run build && node --test tests/scanner.test.cjs tests/inlineContrast.test.cjs tests/currentPageScanning.test.cjs tests/repositoryScanning.test.cjs tests/scanResults.test.cjs tests/fixProposals.test.cjs tests/agentSidebar.test.cjs"
   },
   "repository": {
     "type": "git",
