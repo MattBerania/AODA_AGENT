@@ -95,14 +95,29 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMessage(formattedReply, false);
             saveMessageToActiveSession(formattedReply, false);
         }
-        else if (message.type === 'FIX_RESPONSE') {
+       else if (message.type === 'FIX_RESPONSE') {
             if (requestId !== message.requestId || currentActiveError?.issue.id !== message.issueId) return;
             if (message.status === 'ready') {
                 proposalId = message.proposalId;
                 document.querySelector('.original-code').textContent = message.originalText;
-                renderSuggestedFix(message.replacementText, proposalId);
+                renderSuggestedFix(
+                    message.replacementText,
+                    proposalId,
+                    message.beforeFileText,
+                    message.afterFileText,
+                    message.changedRange
+                );
             } else {
                 document.querySelector('.code-diff-viewer').textContent = message.message;
+            }
+        }
+        else if (message.type === 'BATCH_FIX_STATUS') {
+            sidebarContent.innerHTML = `<p style="padding: 15px;"><em>${escapeHTML(message.message)}</em></p>`;
+        }
+        else if (message.type === 'BATCH_FIX_RESULT') {
+            if (message.status === 'done') {
+                sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Re-scanning repository...</em></p>';
+                vscode.postMessage({ command: 'scanRepository' });
             }
         }
         else if (message.type === 'SELECT_ISSUE') {
@@ -112,9 +127,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         else if (message.type === 'FIX_RESULT' && proposalId && proposalId === message.proposalId) {
             const button = document.getElementById('applyFixBtn');
-            button.disabled = true;
+            const confirmBtn = document.getElementById('confirmPreviewFixBtn');
             const labels = { applied: 'Applied', verified: 'Verified', unverified: 'Unverified', rejected: 'Rejected', failed: 'Failed' };
-            button.textContent = labels[message.status];
+            if (button) {
+                button.disabled = true;
+                button.textContent = labels[message.status];
+            }
+            if (confirmBtn) {
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = `✓ ${labels[message.status]}`;
+            }
             document.querySelector('.fix-status').textContent = message.message;
         }
         else if (message.type === 'REPO_SCAN_RESULTS') {
@@ -206,12 +228,46 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const allIssueIds = repoScanResults.filter(ctx => ctx.issue).map(ctx => ctx.issue.id);
+
+        // Top "Fix All" bar
+        const repoToolbar = document.createElement('div');
+        repoToolbar.className = 'repo-toolbar';
+        const fixAllBtn = document.createElement('button');
+        fixAllBtn.type = 'button';
+        fixAllBtn.className = 'fix-all-btn';
+        fixAllBtn.textContent = `Fix All (${allIssueIds.length})`;
+        fixAllBtn.addEventListener('click', () => {
+            vscode.postMessage({
+                command: 'batchFix',
+                issueIds: allIssueIds,
+                label: 'the entire repository'
+            });
+        });
+        repoToolbar.appendChild(fixAllBtn);
+        sidebarContent.appendChild(repoToolbar);
+
+        // Helper to create clickable red count badges
+        function createBadgeButton(issueIds, label) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'error-badge badge-btn';
+            btn.textContent = issueIds.length;
+            btn.title = `Click to auto-fix ${issueIds.length} issue(s) in ${label}`;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                vscode.postMessage({ command: 'batchFix', issueIds, label });
+            });
+            return btn;
+        }
+
         // Category -> Folder -> File -> Issues[]
         const tree = {};
         repoScanResults.forEach(ctx => {
             if (!ctx.issue) return;
             const cat = ctx.issue.category || 'Other';
-            const folder = ctx.folderPath || 'Root';
+            const folder = ctx.folderPath || 'Workspace';
             const file = ctx.fileName || 'Unknown File';
 
             if (!tree[cat]) tree[cat] = {};
@@ -221,9 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         for (const [category, folders] of Object.entries(tree)) {
-            const catTotal = Object.values(folders).reduce(
-                (sum, files) => sum + Object.values(files).reduce((fSum, list) => fSum + list.length, 0),
-                0
+            const catIssueIds = Object.values(folders).flatMap(files =>
+                Object.values(files).flatMap(list => list.map(ctx => ctx.issue.id))
             );
 
             const catDetails = document.createElement('details');
@@ -232,47 +287,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const catSummary = document.createElement('summary');
             catSummary.className = 'repo-summary-row';
-            catSummary.innerHTML = `<span>${escapeHTML(category)}</span><span class="error-badge">${catTotal}</span>`;
+            const catLabel = document.createElement('span');
+            catLabel.textContent = category;
+            catSummary.appendChild(catLabel);
+            catSummary.appendChild(createBadgeButton(catIssueIds, category));
             catDetails.appendChild(catSummary);
 
             for (const [folderName, files] of Object.entries(folders)) {
-                const folderTotal = Object.values(files).reduce((sum, list) => sum + list.length, 0);
+                const folderIssueIds = Object.values(files).flatMap(list =>
+                    list.map(ctx => ctx.issue.id)
+                );
 
                 const folderDetails = document.createElement('details');
                 folderDetails.className = 'repo-folder-accordion';
                 folderDetails.open = true;
-
                 const folderSummary = document.createElement('summary');
                 folderSummary.className = 'repo-folder-summary';
-                folderSummary.innerHTML = `<span>${escapeHTML(folderName)}</span><span class="error-badge">${folderTotal}</span>`;
+                const folderLabel = document.createElement('span');
+                folderLabel.textContent = folderName;
+                folderSummary.appendChild(folderLabel);
+                folderSummary.appendChild(createBadgeButton(folderIssueIds, `${folderName} (${category})`));
                 folderDetails.appendChild(folderSummary);
-
                 const fileList = document.createElement('ul');
                 fileList.className = 'repo-file-list';
 
                 for (const [fileName, fileContexts] of Object.entries(files)) {
+                    const fileIssueIds = fileContexts.map(ctx => ctx.issue.id);
                     const li = document.createElement('li');
                     li.className = 'repo-file-item';
-
                     const fileLink = document.createElement('span');
                     fileLink.className = 'repo-file-link';
                     fileLink.textContent = fileName;
-
-                    const fileBadge = document.createElement('span');
-                    fileBadge.className = 'error-badge';
-                    fileBadge.textContent = fileContexts.length;
-
                     li.appendChild(fileLink);
-                    li.appendChild(fileBadge);
+                    li.appendChild(createBadgeButton(fileIssueIds, fileName));
                     li.addEventListener('click', () => loadErrorDetails(fileContexts[0]));
-
                     fileList.appendChild(li);
                 }
-
                 folderDetails.appendChild(fileList);
                 catDetails.appendChild(folderDetails);
             }
-
             sidebarContent.appendChild(catDetails);
         }
     }
@@ -296,8 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
         maximizeChatBtn.setAttribute('aria-label', 'Maximize Chat');
         maximizeChatBtn.title = 'Maximize Chat';
 
-
-
         const errorDesc = document.querySelector('.error-description');
         errorDesc.innerHTML = `
             <strong>${escapeHTML(context.issue.title)}</strong>
@@ -320,15 +371,42 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function renderSuggestedFix(replacementText, reviewedId) {
+    function renderSuggestedFix(replacementText, reviewedId, beforeFileText, afterFileText, changedRange) {
         const codeDiff = document.querySelector('.code-diff-viewer');
+        const originalText = document.querySelector('.original-code')?.textContent || currentActiveError?.originalText || '';
+
+        const leftSource = typeof beforeFileText === 'string' ? beforeFileText : originalText;
+        const rightSource = typeof afterFileText === 'string' ? afterFileText : replacementText;
+
+        const startLine = changedRange ? changedRange.startLine : 0;
+        const endLine = changedRange ? changedRange.endLine : leftSource.split(/\r?\n/).length - 1;
+        const newEndLine = changedRange ? changedRange.newEndLine : rightSource.split(/\r?\n/).length - 1;
+
+        function buildDiffLines(sourceText, hlStart, hlEnd, hlClass) {
+            return sourceText.split(/\r?\n/).map((line, idx) => {
+                const isChanged = idx >= hlStart && idx <= hlEnd;
+                const rowClass = isChanged ? `diff-line ${hlClass}` : 'diff-line';
+                const marker = isChanged ? (hlClass === 'diff-removed' ? '-' : '+') : ' ';
+                return `<div class="${rowClass}" data-line="${idx}">` +
+                    `<span class="diff-line-num">${idx + 1}</span>` +
+                    `<span class="diff-line-marker">${marker}</span>` +
+                    `<span class="diff-line-text">${escapeHTML(line) || '&nbsp;'}</span>` +
+                    `</div>`;
+            }).join('');
+        }
+
+        const leftLines = buildDiffLines(leftSource, startLine, endLine, 'diff-removed');
+        const rightLines = buildDiffLines(rightSource, startLine, newEndLine, 'diff-added');
 
         codeDiff.innerHTML = `
             <div class="code-header">
-                <strong>Code Suggestion:</strong>
+                <strong>Copilot suggested fix:</strong>
                 <div class="code-actions">
                     <button id="applyFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
-                        Fix
+                        Apply fix
+                    </button>
+                    <button id="previewFixBtn" class="copy-btn" title="Preview side-by-side comparison">
+                        Preview
                     </button>
                     <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
                         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
@@ -337,15 +415,95 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>
             <div class="code-block suggestion-block">${escapeHTML(replacementText)}</div>
+
+            <div id="diffPreviewArea" class="diff-preview-area hidden">
+                <div class="diff-preview-header">
+                    <span>Side-by-Side Preview</span>
+                    <div class="diff-preview-actions">
+                        <button id="confirmPreviewFixBtn" class="diff-confirm-btn" title="Confirm and apply this fix">
+                            ✓ Confirm Fix
+                        </button>
+                        <button id="maximizePreviewBtn" class="chat-icon-btn" aria-label="Maximize preview" title="Maximize preview">
+                            ⛶
+                        </button>
+                    </div>
+                </div>
+                <div class="diff-grid">
+                    <div id="diffPaneLeft" class="diff-pane">
+                        <div class="diff-pane-title">Before</div>
+                        <div class="diff-code">${leftLines}</div>
+                    </div>
+                    <div id="diffPaneRight" class="diff-pane">
+                        <div class="diff-pane-title">After</div>
+                        <div class="diff-code">${rightLines}</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="fix-status" role="status"></div>
         `;
 
         const applyBtn = document.getElementById('applyFixBtn');
-        applyBtn.addEventListener('click', () => {
+        const confirmBtn = document.getElementById('confirmPreviewFixBtn');
+        const previewBtn = document.getElementById('previewFixBtn');
+        const previewArea = document.getElementById('diffPreviewArea');
+        const maximizePreviewBtn = document.getElementById('maximizePreviewBtn');
+        const leftPane = document.getElementById('diffPaneLeft');
+        const rightPane = document.getElementById('diffPaneRight');
+
+        function scrollToChangedLine() {
+            requestAnimationFrame(() => {
+                const targetLeft = leftPane.querySelector(`.diff-line[data-line="${startLine}"]`);
+                if (targetLeft) {
+                    const top = Math.max(0, targetLeft.offsetTop - leftPane.clientHeight / 2);
+                    leftPane.scrollTop = top;
+                    rightPane.scrollTop = top;
+                }
+            });
+        }
+
+        // Sync vertical scroll between Before and After panes
+        let syncingScroll = false;
+        leftPane.addEventListener('scroll', () => {
+            if (syncingScroll) return;
+            syncingScroll = true;
+            rightPane.scrollTop = leftPane.scrollTop;
+            syncingScroll = false;
+        });
+        rightPane.addEventListener('scroll', () => {
+            if (syncingScroll) return;
+            syncingScroll = true;
+            leftPane.scrollTop = rightPane.scrollTop;
+            syncingScroll = false;
+        });
+
+        function triggerApplyFix() {
             if (applyBtn.disabled || proposalId !== reviewedId) return;
             applyBtn.disabled = true;
             applyBtn.textContent = 'Applying…';
+            if (confirmBtn) {
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Applying…';
+            }
             vscode.postMessage({ command: 'applyFix', proposalId: reviewedId });
+        }
+
+        applyBtn.addEventListener('click', triggerApplyFix);
+        confirmBtn.addEventListener('click', triggerApplyFix);
+
+        previewBtn.addEventListener('click', () => {
+            const isHidden = previewArea.classList.toggle('hidden');
+            previewBtn.textContent = isHidden ? 'Preview' : 'Hide Preview';
+            if (!isHidden) scrollToChangedLine();
+        });
+
+        maximizePreviewBtn.addEventListener('click', () => {
+            const isMax = previewArea.classList.toggle('maximized');
+            maximizePreviewBtn.textContent = isMax ? '🗗' : '⛶';
+            const label = isMax ? 'Minimize preview' : 'Maximize preview';
+            maximizePreviewBtn.setAttribute('aria-label', label);
+            maximizePreviewBtn.title = label;
+            scrollToChangedLine();
         });
 
         const copyBtn = document.getElementById('copyFixBtn');
@@ -355,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 copyBtn.innerHTML = '✓ Copied!';
                 copyBtn.style.color = 'var(--success-green)';
                 copyBtn.style.borderColor = 'var(--success-green)';
-                
+
                 setTimeout(() => {
                     copyBtn.innerHTML = originalIcon;
                     copyBtn.style.color = '';

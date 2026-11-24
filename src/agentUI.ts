@@ -238,7 +238,49 @@ export function registerAgentUI(
                     const { issueId, documentVersion, requestId } = message;
                     const result = await proposals.generate(issueId, documentVersion);
                     if (result && panel === owner) {
-                        void send({ type: 'FIX_RESPONSE', issueId, requestId, ...result });
+                        let beforeFileText: string | undefined;
+                        let afterFileText: string | undefined;
+                        let changedRange: { startLine: number; endLine: number; newEndLine: number } | undefined;
+
+                        if (result.status === 'ready') {
+                            const details = scanner.getIssueContext(issueId);
+                            if (details?.issue?.fileUri) {
+                                try {
+                                    const doc = await api.workspace.openTextDocument(api.Uri.parse(details.issue.fileUri));
+                                    const r = details.issue.range;
+                                    const startOffset = doc.offsetAt(new api.Position(r.startLine, r.startCharacter));
+                                    const endOffset = doc.offsetAt(new api.Position(r.endLine, r.endCharacter));
+                                    const fullText = doc.getText();
+
+                                    const lineText = doc.lineAt(r.startLine).text;
+                                    const indent = lineText.match(/^\s*/)?.[0] ?? '';
+                                    const indentedFix = result.replacementText
+                                        .split(/\r?\n/)
+                                        .map((line: string, i: number) => (i === 0 ? line : indent + line))
+                                        .join('\n');
+
+                                    beforeFileText = fullText;
+                                    afterFileText = fullText.slice(0, startOffset) + indentedFix + fullText.slice(endOffset);
+                                    changedRange = {
+                                        startLine: r.startLine,
+                                        endLine: r.endLine,
+                                        newEndLine: r.startLine + indentedFix.split('\n').length - 1
+                                    };
+                                } catch {
+                                    // Fallback to snippet-only preview
+                                }
+                            }
+                        }
+
+                        void owner.webview.postMessage({
+                            type: 'FIX_RESPONSE',
+                            issueId,
+                            requestId,
+                            beforeFileText,
+                            afterFileText,
+                            changedRange,
+                            ...result
+                        });
                     }
                     break;
                 }
@@ -255,6 +297,103 @@ export function registerAgentUI(
                         : { status: 'rejected', message: 'Approval must contain only the proposal identifier.' };
                     if (panel === owner) {
                         void send({ type: 'FIX_RESULT', proposalId, ...result });
+                    }
+                    break;
+                }
+
+                case 'batchFix': {
+                    const issueIds: string[] = Array.isArray(message.issueIds) ? message.issueIds : [];
+                    const label: string = typeof message.label === 'string' ? message.label : 'selected';
+
+                    if (issueIds.length === 0) break;
+
+                    const confirm = await api.window.showWarningMessage(
+                        `Automatically fix ${issueIds.length} AODA issue${issueIds.length === 1 ? '' : 's'} in ${label}?`,
+                        {
+                            modal: true,
+                            detail: 'Copilot will generate and apply accessibility fixes directly to the affected files.'
+                        },
+                        'Fix Automatically'
+                    );
+
+                    if (confirm !== 'Fix Automatically') {
+                        if (panel === owner) {
+                            void owner.webview.postMessage({ type: 'BATCH_FIX_RESULT', status: 'cancelled' });
+                        }
+                        break;
+                    }
+
+                    if (panel === owner) {
+                        void owner.webview.postMessage({
+                            type: 'BATCH_FIX_STATUS',
+                            message: `Fixing ${issueIds.length} issue${issueIds.length === 1 ? '' : 's'} in ${label}...`
+                        });
+                    }
+
+                    let fixedCount = 0;
+                    let failedCount = 0;
+
+                    // Group issues by file so edits apply safely
+                    const byFile = new Map<string, IssueContext[]>();
+                    for (const id of issueIds) {
+                        const details = scanner.getIssueContext(id);
+                        if (!details) {
+                            failedCount++;
+                            continue;
+                        }
+                        const list = byFile.get(details.issue.fileUri) ?? [];
+                        list.push(details);
+                        byFile.set(details.issue.fileUri, list);
+                    }
+
+                    const edit = new api.WorkspaceEdit();
+
+                    for (const [fileUri, contexts] of byFile.entries()) {
+                        const uri = api.Uri.parse(fileUri);
+                        const doc = await api.workspace.openTextDocument(uri);
+
+                        // Sort bottom-to-top so earlier ranges don't shift
+                        contexts.sort((a, b) =>
+                            b.issue.range.startLine - a.issue.range.startLine ||
+                            b.issue.range.startCharacter - a.issue.range.startCharacter
+                        );
+
+                        for (const details of contexts) {
+                            const aiFix = await generateAiFix(api, details);
+                            if (!aiFix) {
+                                failedCount++;
+                                continue;
+                            }
+
+                            const r = details.issue.range;
+                            const range = new api.Range(r.startLine, r.startCharacter, r.endLine, r.endCharacter);
+                            const lineText = doc.lineAt(r.startLine).text;
+                            const indent = lineText.match(/^\s*/)?.[0] ?? '';
+                            const indentedFix = aiFix
+                                .split('\n')
+                                .map((line, i) => (i === 0 ? line : indent + line))
+                                .join('\n');
+
+                            edit.replace(uri, range, indentedFix);
+                            fixedCount++;
+                        }
+                    }
+
+                    if (fixedCount > 0) {
+                        await api.workspace.applyEdit(edit);
+                    }
+
+                    void api.window.showInformationMessage(
+                        `AODA Batch Fix complete: ${fixedCount} fixed${failedCount ? `, ${failedCount} failed` : ''}.`
+                    );
+
+                    if (panel === owner) {
+                        void owner.webview.postMessage({
+                            type: 'BATCH_FIX_RESULT',
+                            status: 'done',
+                            fixedCount,
+                            failedCount
+                        });
                     }
                     break;
                 }

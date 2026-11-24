@@ -528,6 +528,193 @@ details.repo-folder-accordion > summary.repo-folder-summary {
     width: 12px;
     height: 12px;
 }
+/* Repository Fix All & Clickable Badges */
+.repo-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.fix-all-btn {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.fix-all-btn:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.badge-btn {
+    border: none;
+    cursor: pointer;
+    transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.badge-btn:hover {
+    transform: scale(1.12);
+    filter: brightness(1.15);
+}
+
+/* Side-by-Side Diff Preview */
+.diff-preview-area.hidden {
+    display: none;
+}
+
+.diff-preview-area {
+    margin-top: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--vscode-editorWidget-background, #1e1e1e);
+}
+
+.diff-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.diff-confirm-btn {
+    background: var(--success-green);
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.diff-confirm-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.diff-confirm-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.diff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 260px;
+    overflow: hidden;
+}
+
+.diff-pane {
+    min-width: 0;
+    height: 100%;
+    overflow: auto;
+    position: relative;
+}
+
+.diff-preview-area.maximized .diff-grid {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+}
+
+.diff-pane:first-child {
+    border-right: 1px solid var(--border-color);
+}
+
+.diff-pane-title {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    padding: 4px 8px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: var(--vscode-editorGroupHeader-tabsBackground);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.diff-code {
+    width: max-content;
+    min-width: 100%;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+
+.diff-line {
+    display: flex;
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: 16px;
+}
+
+.diff-line-num {
+    flex: 0 0 36px;
+    text-align: right;
+    padding: 0 8px 0 4px;
+    color: var(--vscode-editorLineNumber-foreground, #858585);
+    user-select: none;
+    border-right: 1px solid var(--border-color);
+}
+
+.diff-line-marker {
+    flex: 0 0 18px;
+    text-align: center;
+    user-select: none;
+    opacity: 0.85;
+}
+
+.diff-line-text {
+    white-space: pre;
+}
+
+.diff-removed {
+    background-color: rgba(241, 76, 76, 0.25);
+}
+
+.diff-added {
+    background-color: rgba(76, 175, 80, 0.25);
+}
+
+.diff-preview-area.maximized .diff-grid {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+}
+
+.diff-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.diff-preview-area.maximized {
+    position: fixed;
+    inset: 10px;
+    margin-top: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.diff-preview-area.maximized .diff-grid {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.diff-preview-area.maximized .diff-pane {
+    overflow: auto;
+}
 /* Home Button & Summary Page */
 .toolbar-btn.home-btn {
     flex: 0 0 auto;
