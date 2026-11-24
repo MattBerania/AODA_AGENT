@@ -272,7 +272,7 @@ export function registerAgentUI(
                             }
                         }
 
-                        void owner.webview.postMessage({
+                        send({
                             type: 'FIX_RESPONSE',
                             issueId,
                             requestId,
