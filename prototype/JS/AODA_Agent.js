@@ -322,10 +322,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         codeDiff.innerHTML = `
             <div class="code-header">
-                <strong>Copilot suggested fix:</strong>
+                <strong>Code Suggestion:</strong>
                 <div class="code-actions">
                     <button id="applyFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
-                        Apply fix
+                        Fix
                     </button>
                     <button id="copyFixBtn" class="copy-btn" title="Copy to clipboard">
                         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/><path d="M3 1L2 2v10h1V2h6.414l-1-1H3z"/></svg>
