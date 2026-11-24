@@ -129,6 +129,7 @@ export function registerAgentUI(
     let send = (_message: unknown): void => {};
     const CHAT_HISTORY_KEY = "aodaAgent.chatHistory";
     let showRepository = false;
+    let hasResized = false;
 
     function updateWebview() {
         if (!panel || !ready || showRepository) {
@@ -211,6 +212,13 @@ export function registerAgentUI(
                         send({ type: 'SELECT_ISSUE', payload: pendingSelection });
                         pendingSelection = undefined;
                     }
+                    if (!hasResized) {
+                        for (let i = 0; i < 3; i++) {
+                            await api.commands.executeCommand('workbench.action.decreaseViewWidth');
+                        }
+                        hasResized = true;
+                    }
+
                     break;
                 }
                 case 'askChatbot': {
