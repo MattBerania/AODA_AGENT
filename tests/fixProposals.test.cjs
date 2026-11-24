@@ -8,7 +8,7 @@ const { makeDocument, makeHost } = require('./helpers/scanHost.cjs');
 
 // Exercise the registered webview message handlers, scanner, and scan store.
 // Only VS Code's document/edit APIs, panel transport and Copilot are simulated.
-function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) {
+async function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const document = makeDocument(source, fileUri);
   const host = makeHost(document, true);
@@ -62,7 +62,7 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
   context.extensionPath = join(__dirname, '..');
   const provider = registerAgentUI(api, context, host.integration);
   provider.resolveWebviewView(panel);
-  receive({ command: "ready" });
+  await receive({ command: "ready" });
   host.commands.get(OPEN_AGENT_UI_COMMAND)();
   t.after(() => { dispose(); for (const sub of context.subscriptions) sub.dispose(); });
   async function send(command) {
@@ -80,7 +80,7 @@ function setup(t, source = '<img>', suggestion = '<img alt="Office">', fileUri) 
 test('review and apply exactly the host proposal, including CRLF and UTF-16 offsets', async t => {
   const source = '😀\r\n  <img src="@Model.Logo"> tail <img>';
   const replacement = '<img src="@Model.Logo"\n    alt="Office">';
-  const host = setup(t, source, '```html\n' + replacement + '\n```');
+  const host = await setup(t, source, '```html\n' + replacement + '\n```');
   const review = await host.generate('review-1', { context: { originalText: 'untrusted text' } });
   assert.equal(review.status, 'ready');
   assert.equal(review.originalText, '<img src="@Model.Logo">');
@@ -106,7 +106,7 @@ for (const [caseName, change] of [
   ['range that VS Code would clamp', h => { h.document.validateRange = () => new h.api.Range(0, 0, 0, 4); }],
 ]) {
   test('approval rejects ' + caseName, async t => {
-    const host = setup(t);
+    const host = await setup(t);
     const review = await host.generate();
     assert.equal(review.status, 'ready');
     change(host);
@@ -118,7 +118,7 @@ for (const [caseName, change] of [
 }
 
 test('approval rejects unknown IDs and webview-supplied edits', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const review = await host.generate();
   assert.equal((await host.approve('unknown')).status, 'rejected');
   assert.equal((await host.approve(review.proposalId, { fileUri: 'file:///other.html', fixCode: '<p>' })).status, 'rejected');
@@ -130,7 +130,7 @@ test('older Copilot completion for the same finding cannot replace the latest re
   const started = Promise.withResolvers();
   const older = Promise.withResolvers();
   let count = 0;
-  const host = setup(t, '<img>', () => {
+  const host = await setup(t, '<img>', () => {
     if (++count === 1) { started.resolve(); return older.promise; }
     return '<img alt="Second">';
   });
@@ -145,7 +145,7 @@ test('older Copilot completion for the same finding cannot replace the latest re
 });
 
 test('a newer review or dismissal invalidates an already displayed approval ID', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const first = await host.generate('first');
   const second = await host.generate('second');
   assert.notEqual(first.proposalId, second.proposalId);
@@ -156,7 +156,7 @@ test('a newer review or dismissal invalidates an already displayed approval ID',
 });
 
 test('double approval while WorkspaceEdit is in flight submits exactly once', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const review = await host.generate();
   const gate = Promise.withResolvers();
   const apply = host.api.workspace.applyEdit;
@@ -171,7 +171,7 @@ test('double approval while WorkspaceEdit is in flight submits exactly once', as
 });
 
 test('apply after switching editors rescans the target and preserves the other pending scan', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const review = await host.generate();
   const other = makeDocument('<button></button>', 'file:///other.html');
   host.switchTo(other);
@@ -190,7 +190,7 @@ for (const [name, apply] of [
   ['thrown', () => { throw Error('write failed'); }],
 ]) {
   test('failed WorkspaceEdit (' + name + ') is reported and cannot be replayed', async t => {
-    const host = setup(t);
+    const host = await setup(t);
     const review = await host.generate();
     host.api.workspace.applyEdit = apply;
     assert.equal((await host.approve(review.proposalId)).status, 'failed');
@@ -200,7 +200,7 @@ for (const [name, apply] of [
 }
 
 test('acknowledged WorkspaceEdit with unexpected buffer contents is unverified and still rescanned', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const review = await host.generate();
   host.api.workspace.applyEdit = () => { host.edit('<img alt="different">'); return true; };
   assert.equal((await host.approve(review.proposalId)).status, 'unverified');
@@ -208,7 +208,7 @@ test('acknowledged WorkspaceEdit with unexpected buffer contents is unverified a
 });
 
 test('skipped Razor scan reports its reason after confirming the edit', async t => {
-  const host = setup(t, '<img>', '<img alt="@GetName()">');
+  const host = await setup(t, '<img>', '<img alt="@GetName()">');
   const review = await host.generate();
   const result = await host.approve(review.proposalId);
   assert.equal(result.status, 'applied');
@@ -223,7 +223,7 @@ for (const [name, refresh, explanation] of [
   ['exception', () => { throw Error(); }, /scan failed/],
 ]) {
   test('post-edit scan ' + name + ' preserves the confirmed applied state', async t => {
-    const host = setup(t);
+    const host = await setup(t);
     const review = await host.generate();
     host.integration.refreshDocument = refresh;
     const result = await host.approve(review.proposalId);
@@ -234,7 +234,7 @@ for (const [name, refresh, explanation] of [
 }
 
 test('a changed occurrence ID cannot hide a persistent finding', async t => {
-  const host = setup(t, '<img>', '<img class="logo">');
+  const host = await setup(t, '<img>', '<img class="logo">');
   const result = await host.approve((await host.generate()).proposalId);
   assert.equal(result.status, 'applied');
   assert.match(result.message, /still reports/);
@@ -243,7 +243,7 @@ test('a changed occurrence ID cannot hide a persistent finding', async t => {
 
 for (const reply of ['plain explanation', '<img>', '<img><p>', '<img alt="x"></img>', '<button>', '<img alt="x" alt="y">']) {
   test('invalid Copilot replacement is never offered: ' + reply, async t => {
-    const host = setup(t, '<img>', reply);
+    const host = await setup(t, '<img>', reply);
     const result = await host.generate();
     assert.equal(result.status, 'rejected');
     assert.equal(result.proposalId, undefined);
@@ -252,7 +252,7 @@ for (const reply of ['plain explanation', '<img>', '<img><p>', '<img alt="x"></i
 }
 
 test('unavailable Copilot yields an explicit failure without a template proposal', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   host.api.lm.selectChatModels = async () => [];
   const result = await host.generate();
   assert.equal(result.status, 'failed');
@@ -261,8 +261,8 @@ test('unavailable Copilot yields an explicit failure without a template proposal
   assert.equal(host.edits.length, 0);
 });
 
-test('a scan result for the wrong URI cannot supply a host proposal context', t => {
-  const host = setup(t);
+test('a scan result for the wrong URI cannot supply a host proposal context', async t => {
+  const host = await setup(t);
   const other = makeDocument('<img>', 'file:///other.html');
   assert.throws(() => host.results.set(other, [host.issue]), /URI does not match/);
   assert.equal(host.results.getSnapshot(other.uri.toString()), undefined);
@@ -270,7 +270,7 @@ test('a scan result for the wrong URI cannot supply a host proposal context', t 
 });
 
 test('inline contrast publishes a foreground-token warning for manual review', async t => {
-  const host = setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p>', undefined,
+  const host = await setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p>', undefined,
     'file:///demo/contrast.html');
   const [diagnostic] = host.collection.entries.get(host.document.uri);
   assert.equal(diagnostic.severity, host.api.DiagnosticSeverity.Warning);
@@ -283,8 +283,8 @@ test('inline contrast publishes a foreground-token warning for manual review', a
   assert.equal(host.edits.length, 0);
 });
 
-test('Agent displays structural findings while contrast stays in the scan and Problems', t => {
-  const host = setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p><img>',
+test('Agent displays structural findings while contrast stays in the scan and Problems', async t => {
+  const host = await setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p><img>',
     undefined, 'file:///demo/contrast.html');
   const issues = host.integration.getLatestScan().issues;
   assert.deepEqual(issues.map(issue => issue.ruleId), ['inline-text-contrast', 'image-text-alternative']);
@@ -307,7 +307,7 @@ test('Agent displays structural findings while contrast stays in the scan and Pr
 });
 
 test('repository sidebar uses shared findings and versioned proposals from another file', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const background = makeDocument('<p style="color:#aaa; background-color:#fff">Notice</p><img>',
     'file:///demo/views/notice.html');
   background.version = 4;
@@ -341,7 +341,7 @@ test('repository sidebar uses shared findings and versioned proposals from anoth
 });
 
 test('webview reviews the current reply and sends only the reviewed ID on Apply', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const outbound = [];
   const elements = new Map();
   function element(selector) {
@@ -400,7 +400,7 @@ for (const [source, replacement] of [
   ['<textarea></textarea>', '<textarea aria-label="Message">'],
 ]) {
   test('apply keeps the existing content and closing markup for ' + source, async t => {
-    const host = setup(t, source, replacement);
+    const host = await setup(t, source, replacement);
     const review = await host.generate();
     assert.equal(review.status, 'ready');
     assert.equal((await host.approve(review.proposalId)).status, 'verified');
@@ -409,7 +409,7 @@ for (const [source, replacement] of [
 }
 
 test('open command focuses the existing sidebar without creating a panel', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   const calls = [];
   host.api.commands.executeCommand = async id => calls.push(id);
   await host.commands.get(OPEN_AGENT_UI_COMMAND)();
@@ -418,7 +418,7 @@ test('open command focuses the existing sidebar without creating a panel', async
 });
 
 test('hidden sidebar queues fix responses and delivers them on reveal once', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   host.panel.visible = false;
   const before = host.messages.length;
   await host.generate();
@@ -432,7 +432,7 @@ test('hidden sidebar queues fix responses and delivers them on reveal once', asy
 
 test('disposing the sidebar prevents late fix responses and removes its listener', async t => {
   let finish;
-  const host = setup(t, '<img>', () => new Promise(resolve => { finish = resolve; }));
+  const host = await setup(t, '<img>', () => new Promise(resolve => { finish = resolve; }));
   const pending = host.generate();
   await Promise.resolve();
   await Promise.resolve();
@@ -445,7 +445,7 @@ test('disposing the sidebar prevents late fix responses and removes its listener
 });
 
 test('sidebar reuses chat messaging and workspace history', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   await host.send({ command: 'saveChatHistory', payload: [{ id: 'chat-1', messages: [] }] });
   const history = await host.send({ command: 'getChatHistory' });
   assert.deepEqual(history.payload, [{ id: 'chat-1', messages: [] }]);
@@ -456,7 +456,7 @@ test('sidebar reuses chat messaging and workspace history', async t => {
 });
 
 test('resolved sidebar loads existing assets and waits for browser readiness', async t => {
-  const host = setup(t);
+  const host = await setup(t);
   assert.equal(host.panel.webview.options.enableScripts, true);
   assert.match(host.panel.webview.html, /prototype[/\\]CSS[/\\]AODA.css/);
   assert.match(host.panel.webview.html, /prototype[/\\]JS[/\\]AODA_Agent.js/);
