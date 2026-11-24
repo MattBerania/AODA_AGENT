@@ -403,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <strong>Copilot suggested fix:</strong>
                 <div class="code-actions">
                     <button id="applyFixBtn" class="copy-btn generate-btn" title="Apply fix directly to code">
-                        Apply fix
+                        Fix
                     </button>
                     <button id="previewFixBtn" class="copy-btn" title="Preview side-by-side comparison">
                         Preview
