@@ -2,7 +2,7 @@
   "name": "ops-aoda-agent",
   "publisher": "ops-aoda-local",
   "version": "1.0.0",
-  "displayName": "OPS AODA Agent",
+  "displayName": "AODAgent",
   "description": "Scan the current HTML or Razor source document for supported accessibility issues.",
   "main": "./dist/extension.js",
   "engines": {
@@ -15,7 +15,7 @@
       "activitybar": [
         {
           "id": "opsAoda",
-          "title": "OPS AODA Agent",
+          "title": "AODAgent",
           "icon": "resources/ops-aoda-agent.svg"
         }
       ]
@@ -25,7 +25,7 @@
         {
           "type": "webview",
           "id": "opsAoda.agentSidebar",
-          "name": "OPS AODA Agent",
+          "name": "AODAgent",
           "icon": "resources/ops-aoda-agent.svg"
         }
       ]
