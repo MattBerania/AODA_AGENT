@@ -8,13 +8,13 @@ test('manifest connects the stable sidebar identifiers to a packaged icon and we
   const { contributes } = require('../package.json');
   const container = contributes.viewsContainers.activitybar.find(item => item.id === 'opsAoda');
   assert.ok(container);
-  assert.equal(container.title, 'OPS AODA Agent');
+  assert.equal(container.title, 'AODAgent');
   assert.ok(existsSync(join(__dirname, '..', container.icon)));
   assert.equal(AGENT_SIDEBAR_VIEW_ID, 'opsAoda.agentSidebar');
   const view = contributes.views[container.id].find(item => item.id === AGENT_SIDEBAR_VIEW_ID);
   assert.ok(view);
   assert.equal(view.type, 'webview');
-  assert.equal(view.name, 'OPS AODA Agent');
+  assert.equal(view.name, 'AODAgent');
   assert.equal(view.icon, container.icon);
 });
 
