@@ -70,19 +70,26 @@ async function generateAiFix(
         if (!model) {
             return null;
         }
+        const isContrast = issue.ruleId === INLINE_TEXT_CONTRAST_RULE_ID;
+        const prompt = isContrast
+            ? `Fix the following AODA/WCAG inline text contrast violation.
+Rule: ${issue.ruleId} (${issue.message})
+Guidance: ${rule.remediation}
 
-        const messages = [
-            api.LanguageModelChatMessage.User(
-                `Fix the following AODA/WCAG accessibility violation.
+Original foreground colour token:
+${originalText}
+
+Return only a single replacement 6-digit hex colour code (for example, #595959) that achieves at least a 4.5:1 WCAG AA contrast ratio against the background colour described above. Do not include quotes, semicolons, CSS properties, explanations, or code fences.`
+            : `Fix the following AODA/WCAG accessibility violation.
 Rule: ${issue.ruleId} (${issue.message})
 Guidance: ${rule.remediation}
 
 Original code:
 ${originalText}
 
-Return only the revised opening tag for the same element. Preserve unrelated attributes and Razor expressions. Do not include a closing tag, surrounding markup, explanations or code fences.`
-            ),
-        ];
+Return only the revised opening tag for the same element. Preserve unrelated attributes and Razor expressions. Do not include a closing tag, surrounding markup, explanations or code fences.`;
+
+        const messages = [api.LanguageModelChatMessage.User(prompt)];
 
         const tokenSource = new api.CancellationTokenSource();
         try {
@@ -99,8 +106,8 @@ Return only the revised opening tag for the same element. Preserve unrelated att
     }
 }
 
-function isAgentIssue(issue: AccessibilityIssue): boolean {
-    return issue.ruleId !== INLINE_TEXT_CONTRAST_RULE_ID;
+function isAgentIssue(_issue: AccessibilityIssue): boolean {
+    return true;
 }
 
 function isPositionInIssue(position: VSCode.Position, issue: AccessibilityIssue): boolean {
@@ -130,6 +137,13 @@ export function registerAgentUI(
     const CHAT_HISTORY_KEY = "aodaAgent.chatHistory";
     let showRepository = false;
     let hasResized = false;
+
+    type UndoEntry = {
+        label: string;
+        files: { fileUri: string; beforeText: string; }[];
+    };
+    const undoStack: UndoEntry[] = [];
+    const proposalFiles = new Map<string, string>();
 
     function updateWebview() {
         if (!panel || !ready || showRepository) {
@@ -245,6 +259,7 @@ export function registerAgentUI(
                         if (result.status === 'ready') {
                             const details = scanner.getIssueContext(issueId);
                             if (details?.issue?.fileUri) {
+                                proposalFiles.set(result.proposalId, details.issue.fileUri);
                                 try {
                                     const doc = await api.workspace.openTextDocument(api.Uri.parse(details.issue.fileUri));
                                     const r = details.issue.range;
@@ -292,11 +307,36 @@ export function registerAgentUI(
 
                 case 'applyFix': {
                     const { proposalId } = message;
+                    const targetUri = proposalFiles.get(proposalId);
+                    let beforeText: string | undefined;
+                    if (targetUri) {
+                        try {
+                            const doc = await api.workspace.openTextDocument(api.Uri.parse(targetUri));
+                            beforeText = doc.getText();
+                        }
+                        catch {
+                            // Ignore if document can't be opened; undo will not be available
+                        }
+                    }
                     const result = Object.keys(message).every(key => key === 'command' || key === 'proposalId')
                         ? await proposals.approve(proposalId)
                         : { status: 'rejected', message: 'Approval must contain only the proposal identifier.' };
+                    const didApply = result.status === 'applied'|| result.status === 'verified' || result.status === 'unverified';
+                    if (didApply && targetUri && typeof beforeText === 'string') {
+                        undoStack.push({
+                            label: 'suggested fix',
+                            files: [{ fileUri: targetUri, beforeText }],
+                        });
+                    }
+                    proposalFiles.delete(proposalId);
                     if (panel === owner) {
-                        void send({ type: 'FIX_RESULT', proposalId, ...result });
+                        send({ 
+                            type: 'FIX_RESULT',
+                            ...result, 
+                            proposalId,
+                            canUndo: undoStack.length > 0,
+                            undoLabel: undoStack[undoStack.length - 1]?.label ?? '',
+                        });
                     }
                     break;
                 }
@@ -318,13 +358,13 @@ export function registerAgentUI(
 
                     if (confirm !== 'Fix Automatically') {
                         if (panel === owner) {
-                            void owner.webview.postMessage({ type: 'BATCH_FIX_RESULT', status: 'cancelled' });
+                            send({ type: 'BATCH_FIX_RESULT', status: 'cancelled' });
                         }
                         break;
                     }
 
                     if (panel === owner) {
-                        void owner.webview.postMessage({
+                        send({
                             type: 'BATCH_FIX_STATUS',
                             message: `Fixing ${issueIds.length} issue${issueIds.length === 1 ? '' : 's'} in ${label}...`
                         });
@@ -346,11 +386,13 @@ export function registerAgentUI(
                         byFile.set(details.issue.fileUri, list);
                     }
 
+                    const fileSnapshots: { fileUri: string; beforeText: string }[] = [];
                     const edit = new api.WorkspaceEdit();
 
                     for (const [fileUri, contexts] of byFile.entries()) {
                         const uri = api.Uri.parse(fileUri);
                         const doc = await api.workspace.openTextDocument(uri);
+                        fileSnapshots.push({ fileUri, beforeText: doc.getText() });
 
                         // Sort bottom-to-top so earlier ranges don't shift
                         contexts.sort((a, b) =>
@@ -381,6 +423,7 @@ export function registerAgentUI(
 
                     if (fixedCount > 0) {
                         await api.workspace.applyEdit(edit);
+                        undoStack.push({ label, files: fileSnapshots });
                     }
 
                     void api.window.showInformationMessage(
@@ -388,11 +431,53 @@ export function registerAgentUI(
                     );
 
                     if (panel === owner) {
-                        void owner.webview.postMessage({
+                        send({
                             type: 'BATCH_FIX_RESULT',
                             status: 'done',
                             fixedCount,
-                            failedCount
+                            failedCount,
+                            canUndo: undoStack.length > 0,
+                            undoLabel: undoStack[undoStack.length - 1]?.label ?? '',
+                        });
+                    }
+                    break;
+                }
+
+                case 'undoLastFix': {
+                    const entry = undoStack.pop();
+                    if (!entry) {
+                        send({ type: 'UNDO_RESULT', success: false, canUndo: false, undoLabel: '' });
+                        break;
+                    }
+
+                    try {
+                        const edit = new api.WorkspaceEdit();
+                        for (const file of entry.files) {
+                            const uri = api.Uri.parse(file.fileUri);
+                            const doc = await api.workspace.openTextDocument(uri);
+                            const fullRange = new api.Range(
+                                doc.positionAt(0),
+                                doc.positionAt(doc.getText().length)
+                            );
+                            edit.replace(uri, fullRange, file.beforeText);
+                        }
+                        const success = await api.workspace.applyEdit(edit);
+                        void api.window.showInformationMessage(
+                            success ? `Reverted AODA fix (${entry.label}).` : 'Could not undo the last fix.'
+                        );
+                        send({
+                            type: 'UNDO_RESULT',
+                            success,
+                            canUndo: undoStack.length > 0,
+                            undoLabel: undoStack[undoStack.length - 1]?.label ?? '',
+                        });
+                    } catch (err) {
+                        console.error('Undo fix error:', err);
+                        send({
+                            type: 'UNDO_RESULT',
+                            success: false,
+                            canUndo: undoStack.length > 0,
+                            undoLabel: undoStack[undoStack.length - 1]?.label ?? '',
                         });
                     }
                     break;

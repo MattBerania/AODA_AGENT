@@ -27,6 +27,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const maximizeChatBtn = document.getElementById('maximizeChatBtn');
     const scanPageBtn = document.getElementById('scanPageBtn');
     const scanRepoBtn = document.getElementById('scanRepoBtn');
+    const undoBar = document.getElementById('undoBar');
+    const undoLabel = document.getElementById('undoLabel');
+    const undoFixBtn = document.getElementById('undoFixBtn');
+
+    function updateUndoBar(canUndo, label) {
+        if (!undoBar || !undoBar.classList) return;
+        if (canUndo) {
+            undoBar.classList.remove('hidden');
+        } else {
+            undoBar.classList.add('hidden');
+        }
+        if (canUndo && undoLabel) {
+            undoLabel.textContent = label ? `Last fix: ${label}` : 'Fix applied';
+        }
+    }
+
+    undoFixBtn.addEventListener('click', () => {
+        undoFixBtn.disabled = true;
+        undoFixBtn.textContent = 'Undoing…';
+        vscode.postMessage({ command: 'undoLastFix' });
+    });
 
     function setActiveTab(tab) {
         activeTab = tab;
@@ -115,9 +136,32 @@ document.addEventListener('DOMContentLoaded', () => {
             sidebarContent.innerHTML = `<p style="padding: 15px;"><em>${escapeHTML(message.message)}</em></p>`;
         }
         else if (message.type === 'BATCH_FIX_RESULT') {
+            if (typeof message.canUndo === 'boolean') {
+                updateUndoBar(message.canUndo, message.undoLabel);
+            }
             if (message.status === 'done') {
-                sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Re-scanning repository...</em></p>';
-                vscode.postMessage({ command: 'scanRepository' });
+                if (activeTab === 'page') {
+                    sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Re-scanning current page...</em></p>';
+                    vscode.postMessage({ command: 'scanCurrentPage' });
+                } else if (activeTab === 'repo') {
+                    sidebarContent.innerHTML = '<p style="padding: 15px;"><em>Re-scanning repository...</em></p>';
+                    vscode.postMessage({ command: 'scanRepository' });
+                }
+            }
+        }
+        else if (message.type === 'UNDO_RESULT') {
+            undoFixBtn.disabled = false;
+            undoFixBtn.textContent = '↶ Undo';
+            updateUndoBar(Boolean(message.canUndo), message.undoLabel);
+
+            if (message.success) {
+                const statusEl = document.querySelector('.fix-status');
+                if (statusEl) statusEl.textContent = 'Fix reverted.';
+                if (activeTab === 'page') {
+                    vscode.postMessage({ command: 'scanCurrentPage' });
+                } else if (activeTab === 'repo') {
+                    vscode.postMessage({ command: 'scanRepository' });
+                }
             }
         }
         else if (message.type === 'SELECT_ISSUE') {
@@ -138,6 +182,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 confirmBtn.textContent = `✓ ${labels[message.status]}`;
             }
             document.querySelector('.fix-status').textContent = message.message;
+            if (typeof message.canUndo === 'boolean') {
+                updateUndoBar(message.canUndo, message.undoLabel);
+            }
+
         }
         else if (message.type === 'REPO_SCAN_RESULTS') {
             if (message.message) {
@@ -149,14 +197,48 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 2. DYNAMIC SIDEBAR GENERATION
+    function createBadgeButton(issueIds, label) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'error-badge badge-btn';
+        btn.textContent = issueIds.length;
+        btn.title = `Click to auto-fix ${issueIds.length} issue(s) in ${label}`;
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            vscode.postMessage({ command: 'batchFix', issueIds, label });
+        });
+        return btn;
+    }
+
+    // 2. DYNAMIC SIDEBAR GENERATION
     function populateSidebar(liveScanResults) {
         sidebarContent.innerHTML = '';
         const categories = {};
-        
+
         if (!liveScanResults || liveScanResults.length === 0) {
             sidebarContent.textContent = 'No findings to display in the Agent.';
             return;
         }
+
+        const allIssueIds = liveScanResults.filter(ctx => ctx?.issue).map(ctx => ctx.issue.id);
+
+        // Top "Fix All" bar for current page
+        const pageToolbar = document.createElement('div');
+        pageToolbar.className = 'repo-toolbar';
+        const fixAllBtn = document.createElement('button');
+        fixAllBtn.type = 'button';
+        fixAllBtn.className = 'fix-all-btn';
+        fixAllBtn.textContent = `Fix All (${allIssueIds.length})`;
+        fixAllBtn.addEventListener('click', () => {
+            vscode.postMessage({
+                command: 'batchFix',
+                issueIds: allIssueIds,
+                label: 'the current page'
+            });
+        });
+        pageToolbar.appendChild(fixAllBtn);
+        sidebarContent.appendChild(pageToolbar);
 
         liveScanResults.forEach(context => {
             if (!context?.issue) return;
@@ -166,12 +248,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         for (const [category, contexts] of Object.entries(categories)) {
+            const catIssueIds = contexts.map(ctx => ctx.issue.id);
             const details = document.createElement('details');
             details.className = 'aoda-accordion';
             details.open = true;
+
             const summary = document.createElement('summary');
-            summary.textContent = category;
+            summary.className = 'repo-summary-row';
+            const catLabel = document.createElement('span');
+            catLabel.textContent = category;
+            summary.appendChild(catLabel);
+            summary.appendChild(createBadgeButton(catIssueIds, category));
             details.appendChild(summary);
+
             const ul = document.createElement('ul');
             ul.className = 'error-list';
             const issuesByTitle = {};
@@ -180,38 +269,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!issuesByTitle[title]) issuesByTitle[title] = [];
                 issuesByTitle[title].push(ctx);
             });
+
             for (const [title, titleContexts] of Object.entries(issuesByTitle)) {
+                const titleIssueIds = titleContexts.map(ctx => ctx.issue.id);
                 const li = document.createElement('li');
                 li.className = 'error-item';
                 const titleHeader = document.createElement('div');
                 titleHeader.className = 'error-title-header';
-                
+
                 const titleLabel = document.createElement('span');
                 titleLabel.className = 'error-title-label';
                 titleLabel.textContent = title;
-                
-                const badge = document.createElement('span');
-                badge.className = 'error-badge';
-                badge.textContent = titleContexts.length;
-                
+
                 titleHeader.appendChild(titleLabel);
-                titleHeader.appendChild(badge);
+                titleHeader.appendChild(createBadgeButton(titleIssueIds, title));
                 li.appendChild(titleHeader);
 
                 titleContexts.forEach(context => {
                     const codeSnippet = document.createElement('span');
                     codeSnippet.className = 'error-code-link';
-                    
+
                     const cleanCode = context.originalText.trim().replace(/\s+/g, ' ');
                     const words = cleanCode.split(' ');
-                    codeSnippet.textContent = words.length > 7 
-                        ? words.slice(0, 7).join(' ') + '...' 
+                    codeSnippet.textContent = words.length > 7
+                        ? words.slice(0, 7).join(' ') + '...'
                         : cleanCode;
 
                     codeSnippet.addEventListener('click', () => loadErrorDetails(context));
                     li.appendChild(codeSnippet);
                 });
-                
+
                 ul.appendChild(li);
             }
 
@@ -246,21 +333,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         repoToolbar.appendChild(fixAllBtn);
         sidebarContent.appendChild(repoToolbar);
-
-        // Helper to create clickable red count badges
-        function createBadgeButton(issueIds, label) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'error-badge badge-btn';
-            btn.textContent = issueIds.length;
-            btn.title = `Click to auto-fix ${issueIds.length} issue(s) in ${label}`;
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                vscode.postMessage({ command: 'batchFix', issueIds, label });
-            });
-            return btn;
-        }
 
         // Category -> Folder -> File -> Issues[]
         const tree = {};
@@ -308,20 +380,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 folderSummary.appendChild(folderLabel);
                 folderSummary.appendChild(createBadgeButton(folderIssueIds, `${folderName} (${category})`));
                 folderDetails.appendChild(folderSummary);
-                const fileList = document.createElement('ul');
+
+                const fileList = document.createElement('div');
                 fileList.className = 'repo-file-list';
 
                 for (const [fileName, fileContexts] of Object.entries(files)) {
                     const fileIssueIds = fileContexts.map(ctx => ctx.issue.id);
-                    const li = document.createElement('li');
-                    li.className = 'repo-file-item';
-                    const fileLink = document.createElement('span');
-                    fileLink.className = 'repo-file-link';
-                    fileLink.textContent = fileName;
-                    li.appendChild(fileLink);
-                    li.appendChild(createBadgeButton(fileIssueIds, fileName));
-                    li.addEventListener('click', () => loadErrorDetails(fileContexts[0]));
-                    fileList.appendChild(li);
+
+                    const fileDetails = document.createElement('details');
+                    fileDetails.className = 'repo-file-accordion';
+                    fileDetails.open = true;
+
+                    const fileSummary = document.createElement('summary');
+                    fileSummary.className = 'repo-file-summary';
+                    const fileLabel = document.createElement('span');
+                    fileLabel.className = 'repo-file-link';
+                    fileLabel.textContent = fileName;
+                    fileSummary.appendChild(fileLabel);
+                    fileSummary.appendChild(createBadgeButton(fileIssueIds, fileName));
+                    fileDetails.appendChild(fileSummary);
+
+                    const issueList = document.createElement('ul');
+                    issueList.className = 'repo-issue-list';
+
+                    fileContexts.forEach(ctx => {
+                        const li = document.createElement('li');
+                        li.className = 'repo-issue-item';
+
+                        const lineNum = ctx.issue.range.startLine + 1;
+                        const cleanCode = (ctx.originalText || '').trim().replace(/\s+/g, ' ');
+                        const words = cleanCode.split(' ');
+                        const snippet = words.length > 7
+                            ? words.slice(0, 7).join(' ') + '...'
+                            : cleanCode;
+
+                        const lineBadge = document.createElement('span');
+                        lineBadge.className = 'repo-line-num';
+                        lineBadge.textContent = `Line ${lineNum}`;
+
+                        const codeLink = document.createElement('span');
+                        codeLink.className = 'error-code-link';
+                        codeLink.textContent = snippet || ctx.issue.title;
+
+                        li.appendChild(lineBadge);
+                        li.appendChild(codeLink);
+                        li.addEventListener('click', () => loadErrorDetails(ctx));
+
+                        issueList.appendChild(li);
+                    });
+
+                    fileDetails.appendChild(issueList);
+                    fileList.appendChild(fileDetails);
                 }
                 folderDetails.appendChild(fileList);
                 catDetails.appendChild(folderDetails);

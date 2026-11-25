@@ -50,6 +50,10 @@ function isOpeningTagReplacement(original: string, replacement: string): boolean
   }
   return matches(tree);
 }
+function isHexColorReplacement(original: string, replacement: string): boolean {
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(replacement) &&
+    replacement.toLowerCase() !== original.toLowerCase();
+}
 
 /** One review slot per panel. Only its opaque identifier crosses back on approval. */
 export function createFixProposals(api: typeof VSCode, scanner: ScannerIntegration,
@@ -70,9 +74,6 @@ export function createFixProposals(api: typeof VSCode, scanner: ScannerIntegrati
     if (!context || context.documentVersion !== version) {
       return { status: "rejected", message: "The selected finding is outdated. Select it from a fresh scan." };
     }
-    if (context.issue.ruleId === INLINE_TEXT_CONTRAST_RULE_ID) {
-      return { status: "rejected", message: "Inline contrast findings are for manual review." };
-    }
     const { issue, documentVersion, originalText } = context;
     const stale = { status: "rejected", message: "The source changed. Review a fresh scan." } as const;
     try {
@@ -87,8 +88,17 @@ export function createFixProposals(api: typeof VSCode, scanner: ScannerIntegrati
       if (!reply) return { status: "failed", message: "Copilot returned no suggestion. Check Copilot and reopen the finding to retry." };
       const eol = document.eol === api.EndOfLine.CRLF ? "\r\n" : "\n";
       const replacementText = reply.replace(/\r\n|\r|\n/g, eol);
-      if (!isOpeningTagReplacement(originalText, replacementText)) {
-        return { status: "rejected", message: "Copilot must suggest a changed opening tag for this element. Reopen the finding to retry." };
+      const isContrast = issue.ruleId === INLINE_TEXT_CONTRAST_RULE_ID;
+      const isValid = isContrast
+        ? isHexColorReplacement(originalText, replacementText)
+        : isOpeningTagReplacement(originalText, replacementText);
+      if (!isValid) {
+        return {
+          status: "rejected",
+          message: isContrast
+            ? "Copilot must suggest a different 3- or 6-digit hex colour (e.g. #595959). Reopen the finding to retry."
+            : "Copilot must suggest a changed opening tag for this element. Reopen the finding to retry."
+        };
       }
       const id = randomUUID();
       const fix: ProposedFix = { issueId: issue.id, fileUri: issue.fileUri, range: issue.range,

@@ -278,12 +278,12 @@ test('inline contrast publishes a foreground-token warning for manual review', a
   assert.equal(host.integration.getIssueContext(host.issue.id).originalText, '#aaa');
   const result = await host.generate();
   assert.equal(result.status, 'rejected');
-  assert.match(result.message, /manual review/);
-  assert.equal(host.requests.length, 0);
+  assert.match(result.message, /hex colour/);
+  assert.equal(host.requests.length, 1);
   assert.equal(host.edits.length, 0);
 });
 
-test('Agent displays structural findings while contrast stays in the scan and Problems', async t => {
+test('Agent displays both contrast and structural findings from the scan', async t => {
   const host = await setup(t, '<p style="color:#aaa; background-color:#fff">Notice</p><img>',
     undefined, 'file:///demo/contrast.html');
   const issues = host.integration.getLatestScan().issues;
@@ -292,7 +292,10 @@ test('Agent displays structural findings while contrast stays in the scan and Pr
 
   t.mock.timers.tick(300);
   const sidebar = host.messages.find(message => message.type === 'SCAN_RESULTS');
-  assert.deepEqual(sidebar.payload.map(context => context.issue.ruleId), ['image-text-alternative']);
+  assert.deepEqual(
+    sidebar.payload.map(context => context.issue.ruleId),
+    ['inline-text-contrast', 'image-text-alternative']
+  );
 
   for (const issue of issues) {
     host.selections.fire({
@@ -302,8 +305,11 @@ test('Agent displays structural findings while contrast stays in the scan and Pr
     });
     t.mock.timers.tick(1);
   }
-  assert.deepEqual(host.messages.filter(message => message.type === 'SELECT_ISSUE')
-    .map(message => message.payload.issue.ruleId), ['image-text-alternative']);
+  assert.deepEqual(
+    host.messages.filter(message => message.type === 'SELECT_ISSUE')
+      .map(message => message.payload.issue.ruleId),
+    ['inline-text-contrast', 'image-text-alternative']
+  );
 });
 
 test('repository sidebar uses shared findings and versioned proposals from another file', async t => {
@@ -322,8 +328,8 @@ test('repository sidebar uses shared findings and versioned proposals from anoth
 
   const sidebar = await host.send({ command: 'scanRepository' });
   assert.equal(sidebar.type, 'REPO_SCAN_RESULTS');
-  assert.equal(sidebar.payload.length, 1);
-  const [entry] = sidebar.payload;
+  assert.equal(sidebar.payload.length, 2);
+  const [, entry] = sidebar.payload;
   assert.equal(entry.issue.ruleId, 'image-text-alternative');
   assert.equal(entry.documentVersion, background.version);
   assert.equal(entry.originalText, '<img>');
